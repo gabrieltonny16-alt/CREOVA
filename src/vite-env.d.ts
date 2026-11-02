@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
+  readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+  /** Legacy compatibility only; prefer the publishable key. */
   readonly VITE_SUPABASE_ANON_KEY?: string;
 }
 interface ImportMeta {
