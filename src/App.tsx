@@ -121,7 +121,7 @@ function App() {
   if (!isSupabaseConfigured) {
     return (
       <main className="shell">
-        <nav className="topbar"><a className="wordmark" href="/"><span className="mark">C</span><span>CREOVA</span></a><span className="nav-note">THE ACTIVE SKILL NETWORK</span></nav>
+        <nav className="topbar"><a className="wordmark" href="/"><img className="brand-icon" src={import.meta.env.BASE_URL + "file_000000003314820b9b276d5e4e0b6bb9.png"} alt="" /><span>CREOVA</span></a><span className="nav-note">THE ACTIVE SKILL NETWORK</span></nav>
         <section className="workspace">
           <p className="section-kicker">ONE CONNECTION LEFT</p>
           <h1>Connect the<br /><em>CREOVA engine.</em></h1>
