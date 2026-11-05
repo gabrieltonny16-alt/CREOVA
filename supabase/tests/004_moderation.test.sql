@@ -79,5 +79,5 @@ select ok(
   'Duplicate active reports by the same user are constrained'
 );
 
-select * from finish();
+select jsonb_agg(test_line) as test_results from finish() as test_line;
 rollback;
