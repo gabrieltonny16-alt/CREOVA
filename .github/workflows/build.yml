@@ -2,7 +2,7 @@ name: CREOVA preview
 on:
   push:
     branches:
-      - feature/auth-profiles-anchors
+      - 'feature/**'
   workflow_dispatch:
 permissions:
   contents: read
