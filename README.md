@@ -22,10 +22,37 @@ The selected visual direction is a premium planetary emblem: Earth in deep space
 
 - Preserve existing work; inspect before changing.
 - Build and test real functionality, not mock screens.
-- Develop on feature branches; keep `main` protected from unfinished work.
+- Develop on feature branches; keep \`main\` protected from unfinished work.
 - Do not enable paid services, live payments, or external messaging without explicit approval.
 - Verify every test before reporting its result.
+- Use Supabase Row Level Security as the authorization boundary; never put service-role credentials in the client.
 
-## Current status
+## Current implementation
 
-Repository foundation created. Application source, runtime configuration, and database migrations still need to be brought into this repository before implementation or test claims can be made.
+The working foundation is **React 19 + TypeScript + Vite + Supabase**.
+
+The \`feature/moderation-foundation\` branch contains:
+- account registration/sign-in and profile bootstrap;
+- the initial Anchor and Iteration schema;
+- report submission for Anchors and Iterations;
+- a configurable auto-hold threshold (3 distinct reporters by default);
+- staff-only review actions through a permission-checked RPC;
+- an append-only moderation audit log;
+- creator appeals and staff overturn/uphold decisions;
+- user-facing report/appeal controls and a staff moderation desk.
+
+Database migrations applied to the CREOVA Supabase project:
+- \`initial_core\`
+- \`validate_iteration_parent\`
+- \`index_iteration_parent\`
+- \`moderation_foundation\`
+- \`moderation_security_and_indexes\`
+- \`moderation_console_access\`
+
+The moderation end-to-end test is executed with temporary test users inside a transaction and rolls back the fixtures. No test users or example content are retained in the project.
+
+## Still to build
+
+CREOVA remains an early-stage build. Iteration creation and tree browsing, profiles/onboarding, discovery, messaging, notifications, media/proof uploads, block/mute, broader account moderation, and production deployment still need implementation and testing.
+
+The initial moderator role must be assigned by the project owner after the intended staff account registers. The app does not promote the first user automatically.
