@@ -144,5 +144,5 @@ select is(
   'Every automated and staff decision is audited'
 );
 
-select jsonb_agg(test_line) as test_results from finish() as test_line;
+select * from finish();
 rollback;
