@@ -119,3 +119,12 @@ export async function reviewModeration(input: {
     target_id: string;
   };
 }
+
+
+export async function isCurrentUserModerator(): Promise<boolean> {
+  const client = getClient();
+  await requireUserId();
+  const { data, error } = await client.rpc('current_user_is_moderator');
+  if (error) throw error;
+  return data === true;
+}
