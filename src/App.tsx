@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
+import { ContributionModeration } from './components/ContributionModeration';
+import { ModerationQueue } from './components/ModerationQueue';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
 type Anchor = {
@@ -11,6 +13,7 @@ type Anchor = {
   status: string;
   created_at: string;
   creator_id: string;
+  moderation_status: string;
 };
 
 function App() {
@@ -36,23 +39,20 @@ function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
+  async function reloadAnchors() {
     if (!supabase) return;
-    let cancelled = false;
-    async function loadAnchors() {
-      const { data, error } = await supabase!
-        .from('anchors')
-        .select('id,title,description,skill,status,created_at,creator_id')
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(30);
-      if (!cancelled) {
-        if (error) setNotice(error.message);
-        else setAnchors((data ?? []) as Anchor[]);
-      }
-    }
-    loadAnchors();
-    return () => { cancelled = true; };
+    const { data, error } = await supabase
+      .from('anchors')
+      .select('id,title,description,skill,status,created_at,creator_id,moderation_status')
+      .eq('status', 'active')
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) setNotice(error.message);
+    else setAnchors((data ?? []) as Anchor[]);
+  }
+
+  useEffect(() => {
+    void reloadAnchors();
   }, [session]);
 
   async function handleAuth(event: FormEvent<HTMLFormElement>) {
@@ -101,10 +101,7 @@ function App() {
       setDescription('');
       setSkill('');
       setNotice('Your Anchor is live. Let the work begin.');
-      const { data } = await supabase.from('anchors')
-        .select('id,title,description,skill,status,created_at,creator_id')
-        .eq('status', 'active').order('created_at', { ascending: false }).limit(30);
-      setAnchors((data ?? []) as Anchor[]);
+      await reloadAnchors();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your Anchor.');
     } finally {
@@ -179,6 +176,8 @@ function App() {
         )}
       </section>
 
+      {session && <ModerationQueue onChanged={reloadAnchors} />}
+
       <section className="feed">
         <div className="section-kicker">LIVE ANCHORS</div>
         <h2>Ideas in <em>motion.</em></h2>
@@ -190,6 +189,16 @@ function App() {
                 <h3>{anchor.title}</h3>
                 <p>{anchor.description}</p>
                 <div className="anchor-meta">BY CREATOR · {new Date(anchor.created_at).toLocaleDateString()}</div>
+                {session && (
+                  <ContributionModeration
+                    targetType="anchor"
+                    targetId={anchor.id}
+                    creatorId={anchor.creator_id}
+                    currentUserId={session.user.id}
+                    moderationStatus={anchor.moderation_status}
+                    onChanged={reloadAnchors}
+                  />
+                )}
               </article>
             ))}
           </div>
