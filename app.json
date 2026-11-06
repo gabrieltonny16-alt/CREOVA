@@ -8,9 +8,6 @@
     "scheme": "creova",
     "android": {
       "package": "club.luxora.creova",
-      "adaptiveIcon": {
-        "backgroundColor": "#090D18"
-      }
     },
     "web": {
       "bundler": "metro"
