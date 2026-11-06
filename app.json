@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "CREOVA",
+    "slug": "creova",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "creova",
+    "android": {
+      "package": "club.luxora.creova",
+      "adaptiveIcon": {
+        "backgroundColor": "#090D18"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
