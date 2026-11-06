@@ -47,7 +47,7 @@ The schema includes profile, Anchor, Iteration, reporting, appeal, and moderatio
 
 ## 4. Security advisor snapshot
 
-The Supabase security advisor returned no lint findings at the time of this read-only audit. This is a useful baseline, not a guarantee that the whole application is secure. RLS policies, RPC functions, storage policies, authentication settings, and application behavior still require targeted review and tests.
+The Supabase security advisor returned no lint findings at the time of this read-only audit. A read-only inspection of `pg_policies` also confirmed row-level policies on the six public tables, including owner checks for profile/Anchor/Iteration writes, public profile reads, visibility-aware Anchor/Iteration reads, and reporter/staff controls for moderation records. This is a useful baseline, not a guarantee that the whole application is secure. Privileged RPC definitions, storage policies, authentication settings, and application behavior still require targeted review and tests.
 
 ## 5. Confirmed gaps against the product specification
 
