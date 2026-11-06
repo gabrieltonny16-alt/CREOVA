@@ -1,0 +1,29 @@
+name: CREOVA CI
+
+on:
+  push:
+    branches:
+      - "rebuild/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Check Expo dependency compatibility
+        run: npx expo install --check
+      - name: Type-check
+        run: npm run typecheck
+      - name: Export web application
+        run: npm run export:web
