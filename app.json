@@ -7,7 +7,11 @@
     "userInterfaceStyle": "dark",
     "scheme": "creova",
     "android": {
-      "package": "club.luxora.creova"
+      "package": "club.luxora.creova",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/creova-icon.png",
+        "backgroundColor": "#000000"
+      }
     },
     "web": {
       "bundler": "metro"
@@ -24,6 +28,7 @@
           "microphonePermission": false
         }
       ]
-    ]
+    ],
+    "icon": "./assets/brand/creova-icon.png"
   }
 }
