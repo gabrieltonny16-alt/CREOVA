@@ -37,7 +37,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   if (!isSupabaseConfigured) {
-    return <View style={styles.setup}><Text style={styles.brand}>CREOVA</Text><Text style={styles.title}>Development backend needed</Text><Text style={styles.copy}>The account screens are ready, but authentication is not connected yet. Configure the new development Supabase URL and public anon key in the local environment. Do not use the old production database credentials.</Text></View>;
+    return <View style={styles.setup}><Text style={styles.brand}>CREOVA</Text><Text style={styles.title}>Development backend needed</Text><Text style={styles.copy}>The account screens are ready, but authentication is not connected yet. Configure the CREOVA-DEV URL and publishable key in the local environment. Do not use the old production database credentials.</Text></View>;
   }
 
   return session ? <>{children}</> : <AuthScreen />;
