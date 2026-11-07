@@ -1,0 +1,41 @@
+name: CREOVA Android APK
+
+on:
+  push:
+    branches:
+      - rebuild/fresh-social-platform
+    paths:
+      - .github/workflows/android-apk.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - name: Check out CREOVA
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Create or link the Expo project
+        run: npx eas-cli@latest init --account vxvnciiv --non-interactive
+
+      - name: Build Android APK
+        run: npx eas-cli@latest build --platform android --profile preview --non-interactive --wait
