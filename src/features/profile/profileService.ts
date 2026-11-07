@@ -55,11 +55,11 @@ export async function followProfile(targetUserId: string): Promise<'requested' |
   const { data: target, error: targetError } = await client.from('profiles').select('is_private').eq('id', targetUserId).single();
   if (targetError) throw targetError;
   const status = target.is_private ? 'pending' : 'accepted';
-  const { error } = await client.from('user_follows').upsert({
+  const { error } = await client.from('user_follows').insert({
     follower_id: userData.user.id,
     following_id: targetUserId,
     status,
-  }, { onConflict: 'follower_id,following_id' });
+  });
   if (error) throw error;
   return status === 'pending' ? 'requested' : 'following';
 }
