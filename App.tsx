@@ -112,7 +112,7 @@ function HomeScreen() {
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeGlow} />
         <Text style={styles.welcomeEyebrow}>A NEW WAY TO BE SOCIAL</Text>
-        <Text style={styles.welcomeTitle}>Your world.{ '\\n' }Your evolution.</Text>
+        <Text style={styles.welcomeTitle}>Your world.{ '\n' }Your evolution.</Text>
         <Text style={styles.welcomeCopy}>Connect with people, discover ideas, share what you create, and show how it evolves.</Text>
         <View style={styles.pillarRow}>
           <View style={styles.pillar}><Text style={styles.pillarNumber}>01</Text><Text style={styles.pillarLabel}>CONNECT</Text></View>
