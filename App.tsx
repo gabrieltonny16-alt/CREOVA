@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AuthGate } from './src/features/auth/AuthGate';
 import {
   SafeAreaView,
   ScrollView,
@@ -126,7 +127,7 @@ function ProfileScreen() {
   </View>;
 }
 
-export default function App() {
+function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
@@ -240,3 +241,8 @@ const styles = StyleSheet.create({
   createSymbol: { color: '#FFFFFF', backgroundColor: COLORS.blue, borderRadius: 10, overflow: 'hidden', width: 30, height: 28, lineHeight: 28, textAlign: 'center', fontWeight: '800' },
   bottomNavLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600' }
 });
+
+
+export default function App() {
+  return <AuthGate><MainApp /></AuthGate>;
+}
