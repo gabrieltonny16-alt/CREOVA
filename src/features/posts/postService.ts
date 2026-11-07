@@ -1,5 +1,17 @@
 import { requireSupabase } from '../../lib/supabase';
 
+const MEDIA_BUCKET = 'creova-media';
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+
+export type CreovaPostMedia = {
+  id: string;
+  signedUrl: string;
+  width: number | null;
+  height: number | null;
+  position: number;
+};
+
 export type CreovaFeedPost = {
   id: string;
   author_id: string;
@@ -12,6 +24,7 @@ export type CreovaFeedPost = {
     display_name: string;
     avatar_url: string | null;
   } | null;
+  media: CreovaPostMedia[];
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
@@ -25,31 +38,102 @@ type RawFeedPost = {
   visibility: CreovaFeedPost['visibility'];
   created_at: string;
   author: CreovaFeedPost['author'];
+  media: { id: string; object_path: string; width: number | null; height: number | null; position: number }[] | null;
   likes: { user_id: string }[] | null;
   comments: { id: string }[] | null;
 };
 
-export async function createPost(input: {
+export type PostImageInput = {
+  uri: string;
+  mimeType: string;
+  fileSize: number | null;
+  width: number;
+  height: number;
+};
+
+async function insertPost(input: {
   caption: string;
   postType?: CreovaFeedPost['post_type'];
   visibility?: CreovaFeedPost['visibility'];
-}): Promise<void> {
+}): Promise<{ id: string; userId: string }> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError) throw authError;
   if (!auth.user) throw new Error('Sign in before publishing.');
 
   const caption = input.caption.trim();
-  if (!caption) throw new Error('Write something before publishing.');
   if (caption.length > 2200) throw new Error('Your caption is too long.');
 
-  const { error } = await client.from('posts').insert({
+  const { data, error } = await client.from('posts').insert({
     author_id: auth.user.id,
     caption,
     post_type: input.postType ?? 'post',
     visibility: input.visibility ?? 'public',
-  });
+  }).select('id').single();
   if (error) throw error;
+  return { id: data.id, userId: auth.user.id };
+}
+
+export async function createPost(input: {
+  caption: string;
+  postType?: CreovaFeedPost['post_type'];
+  visibility?: CreovaFeedPost['visibility'];
+}): Promise<void> {
+  if (!input.caption.trim()) throw new Error('Write something before publishing.');
+  await insertPost(input);
+}
+
+export async function createPostWithImage(input: {
+  caption: string;
+  postType?: CreovaFeedPost['post_type'];
+  visibility?: CreovaFeedPost['visibility'];
+  image: PostImageInput;
+}): Promise<void> {
+  const client = requireSupabase();
+  const mimeType = input.image.mimeType.toLowerCase();
+  if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(mimeType)) {
+    throw new Error('Use a JPEG, PNG, or WebP image.');
+  }
+  if (input.image.fileSize !== null && input.image.fileSize > MAX_IMAGE_BYTES) {
+    throw new Error('Choose an image smaller than 10 MB.');
+  }
+
+  const { id: postId, userId } = await insertPost(input);
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+  const fileName = `image-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
+  const objectPath = `${userId}/${postId}/${fileName}`;
+
+  try {
+    const response = await fetch(input.image.uri);
+    if (!response.ok) throw new Error('Could not read the selected image from your device.');
+    const fileBody = await response.arrayBuffer();
+    if (fileBody.byteLength > MAX_IMAGE_BYTES) throw new Error('Choose an image smaller than 10 MB.');
+
+    const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
+      contentType: mimeType,
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    const { error: metadataError } = await client.from('post_media').insert({
+      post_id: postId,
+      object_path: objectPath,
+      media_type: 'image',
+      mime_type: mimeType,
+      file_size_bytes: fileBody.byteLength,
+      width: input.image.width || null,
+      height: input.image.height || null,
+      position: 0,
+    });
+    if (metadataError) {
+      await client.storage.from(MEDIA_BUCKET).remove([objectPath]);
+      throw metadataError;
+    }
+  } catch (error) {
+    await client.from('posts').delete().eq('id', postId);
+    throw error;
+  }
 }
 
 export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
@@ -68,13 +152,24 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
   const authorIds = [auth.user.id, ...(follows ?? []).map(row => row.following_id)];
   const { data, error } = await client
     .from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)')
     .in('author_id', authorIds)
     .order('created_at', { ascending: false })
     .limit(30);
   if (error) throw error;
 
-  return ((data ?? []) as unknown as RawFeedPost[]).map(post => ({
+  const rawPosts = (data ?? []) as unknown as RawFeedPost[];
+  const paths = rawPosts.flatMap(post => post.media?.map(media => media.object_path) ?? []);
+  const signedByPath = new Map<string, string>();
+  if (paths.length) {
+    const { data: signed, error: signedError } = await client.storage.from(MEDIA_BUCKET).createSignedUrls(paths, 3600);
+    if (signedError) throw signedError;
+    (signed ?? []).forEach(item => {
+      if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+    });
+  }
+
+  return rawPosts.map(post => ({
     id: post.id,
     author_id: post.author_id,
     caption: post.caption,
@@ -82,6 +177,10 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
     visibility: post.visibility,
     created_at: post.created_at,
     author: post.author,
+    media: (post.media ?? []).flatMap(item => {
+      const signedUrl = signedByPath.get(item.object_path);
+      return signedUrl ? [{ id: item.id, signedUrl, width: item.width, height: item.height, position: item.position }] : [];
+    }).sort((a, b) => a.position - b.position),
     likeCount: post.likes?.length ?? 0,
     commentCount: post.comments?.length ?? 0,
     likedByMe: post.likes?.some(like => like.user_id === auth.user.id) ?? false,
