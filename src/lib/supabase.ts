@@ -5,13 +5,15 @@ import { createClient } from '@supabase/supabase-js';
 // app bundle; never put a Supabase service-role/secret key here.
 const supabaseUrl =
   process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://dnbkxtqnojjsntxteuqu.supabase.co';
-const supabaseAnonKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? 'sb_publishable_zWFni55o6oA710nmB3IP3g_2f_KACL4';
+const supabasePublishableKey =
+  process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ??
+  'sb_publishable_zWFni55o6oA710nmB3IP3g_2f_KACL4';
 
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey, {
+  ? createClient(supabaseUrl, supabasePublishableKey, {
       auth: {
         storage: AsyncStorage,
         autoRefreshToken: true,
