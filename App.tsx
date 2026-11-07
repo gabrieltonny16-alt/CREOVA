@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AuthGate } from './src/features/auth/AuthGate';
+import { getMyProfile, searchProfiles, followProfile } from './src/features/profile/profileService';
+import type { CreovaProfile } from './src/features/profile/profileService';
+import { supabase } from './src/lib/supabase';
 import {
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
+  TextInput,
   Text,
   TouchableOpacity,
   View,
@@ -88,10 +92,37 @@ function HomeScreen() {
 }
 
 function DiscoverScreen() {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function search() {
+    setBusy(true); setMessage('');
+    try { setResults(await searchProfiles(query)); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Search failed.'); }
+    finally { setBusy(false); }
+  }
+  async function follow(id: string) {
+    try {
+      const result = await followProfile(id);
+      setResults(items => items.map(item => item.id === id ? { ...item, followState: result } as typeof item : item));
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Follow action failed.'); }
+  }
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>FIND YOUR PEOPLE</Text>
     <Text style={styles.heading}>Explore</Text>
-    <EmptyState title="Discover something new" description="Creator search, trending topics, short videos, and personalized discovery will live here once the discovery services are built." />
+    <View style={styles.searchRow}>
+      <TextInput value={query} onChangeText={setQuery} placeholder="Search usernames" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} onSubmitEditing={search} />
+      <TouchableOpacity onPress={search} disabled={busy} style={styles.searchButton}><Text style={styles.searchButtonText}>{busy ? '…' : 'Search'}</Text></TouchableOpacity>
+    </View>
+    {!!message && <Text style={styles.notice}>{message}</Text>}
+    {results.map(item => <View key={item.id} style={styles.resultRow}>
+      <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
+      <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
+      <TouchableOpacity onPress={() => follow(item.id)} style={styles.followButton}><Text style={styles.followButtonText}>{(item as typeof item & {followState?: string}).followState === 'requested' ? 'Requested' : (item as typeof item & {followState?: string}).followState === 'following' ? 'Following' : 'Follow'}</Text></TouchableOpacity>
+    </View>)}
+    {query.trim().length < 2 && <EmptyState title="Discover something new" description="Search for CREOVA members by username. More discovery feeds and trending topics will follow." />}
+    {query.trim().length >= 2 && !busy && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
   </View>;
 }
 
@@ -115,14 +146,25 @@ function InboxScreen() {
 }
 
 function ProfileScreen() {
+  const [profile, setProfile] = useState<CreovaProfile | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    getMyProfile().then(value => { if (active) setProfile(value); }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Could not load your profile.'); });
+    return () => { active = false; };
+  }, []);
+  async function signOut() { await supabase?.auth.signOut(); }
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
     <Text style={styles.heading}>Profile</Text>
-    <View style={styles.profileCard}>
-      <View style={styles.avatar}><Text style={styles.avatarText}>C</Text></View>
-      <Text style={styles.profileName}>Your profile</Text>
-      <Text style={styles.profileCopy}>Sign-in and profile setup will appear here when the new identity system is connected.</Text>
-    </View>
+    {profile ? <View style={styles.profileCard}>
+      <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
+      <Text style={styles.profileName}>{profile.display_name}</Text>
+      <Text style={styles.profileHandle}>@{profile.username}</Text>
+      <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
+      <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'PUBLIC ACCOUNT'}</Text>
+      <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
+    </View> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and try again.' : 'Your account profile is being loaded from CREOVA.'} />}
     <EmptyState title="Your evolution starts here" description="Your posts, Anchors, Iterations, skills, and proof of execution will come together on your profile." />
   </View>;
 }
@@ -239,6 +281,22 @@ const styles = StyleSheet.create({
   bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3 },
   bottomNavSymbol: { color: COLORS.muted, fontSize: 21, height: 25 },
   createSymbol: { color: '#FFFFFF', backgroundColor: COLORS.blue, borderRadius: 10, overflow: 'hidden', width: 30, height: 28, lineHeight: 28, textAlign: 'center', fontWeight: '800' },
+  searchRow: { flexDirection: 'row', gap: 9 },
+  searchInput: { flex: 1, minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 14, fontSize: 13 },
+  searchButton: { minWidth: 82, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
+  searchButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: 15, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+  resultAvatar: { width: 42, height: 42, borderRadius: 15, backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  resultAvatarText: { color: '#A7C6FF', fontSize: 17, fontWeight: '900' },
+  resultInfo: { flex: 1, gap: 4 },
+  resultName: { color: COLORS.text, fontSize: 13, fontWeight: '800' },
+  resultHandle: { color: COLORS.muted, fontSize: 10 },
+  followButton: { backgroundColor: COLORS.accentSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  followButtonText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
+  profileHandle: { color: '#A7C6FF', fontSize: 12, fontWeight: '700' },
+  profilePrivacy: { color: COLORS.muted, fontSize: 9, letterSpacing: 1.4, fontWeight: '800' },
+  signOutButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 11, paddingHorizontal: 16, paddingVertical: 10, marginTop: 8 },
+  signOutText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
   bottomNavLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600' }
 });
 
