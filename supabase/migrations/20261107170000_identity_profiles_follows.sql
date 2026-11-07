@@ -35,16 +35,7 @@ alter table public.user_follows enable row level security;
 
 create policy "profiles_select_visible"
 on public.profiles for select to authenticated
-using (
-  id = (select auth.uid())
-  or not is_private
-  or exists (
-    select 1 from public.user_follows f
-    where f.follower_id = (select auth.uid())
-      and f.following_id = profiles.id
-      and f.status = 'accepted'
-  )
-);
+using (true); -- profile identity is discoverable to signed-in users; private content access is enforced separately.
 
 create policy "profiles_insert_self"
 on public.profiles for insert to authenticated
