@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/android-apk.yml
       - .github/workflows/ci.yml
+      - assets/**
       - App.tsx
       - app.json
       - eas.json
@@ -51,6 +52,13 @@ jobs:
 
       - name: Check TypeScript
         run: npm run typecheck
+
+      - name: Restore original CREOVA icon artwork
+        run: |
+          git fetch --no-tags origin feature/auth-profiles-anchors
+          mkdir -p assets/brand
+          git show FETCH_HEAD:file_000000003314820b9b276d5e4e0b6bb9.png > assets/brand/creova-icon.png
+          test -s assets/brand/creova-icon.png
 
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install --non-interactive
