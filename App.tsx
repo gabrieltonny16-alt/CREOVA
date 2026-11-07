@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
+import { createPost, getHomeFeed, togglePostLike } from './src/features/posts/postService';
+import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import {
   SafeAreaView,
@@ -61,6 +63,41 @@ function EmptyState({ title, description }: { title: string; description: string
 }
 
 function HomeScreen() {
+  const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [busyPost, setBusyPost] = useState('');
+
+  async function loadFeed() {
+    setLoading(true);
+    setMessage('');
+    try {
+      setPosts(await getHomeFeed());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load your feed.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadFeed();
+  }, []);
+
+  async function likePost(postId: string) {
+    setBusyPost(postId);
+    try {
+      const liked = await togglePostLike(postId);
+      setPosts(items => items.map(item => item.id === postId
+        ? { ...item, likedByMe: liked, likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)) }
+        : item));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update your like.');
+    } finally {
+      setBusyPost('');
+    }
+  }
+
   return (
     <View style={styles.screenContent}>
       <View style={styles.sectionHeading}>
@@ -68,12 +105,14 @@ function HomeScreen() {
           <Text style={styles.eyebrow}>YOUR WORLD</Text>
           <Text style={styles.heading}>Home</Text>
         </View>
-        <View style={styles.livePill}><View style={styles.statusDot} /><Text style={styles.liveText}>NEW PLATFORM</Text></View>
+        <TouchableOpacity onPress={loadFeed} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>↻ Refresh</Text>
+        </TouchableOpacity>
       </View>
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeGlow} />
         <Text style={styles.welcomeEyebrow}>A NEW WAY TO BE SOCIAL</Text>
-        <Text style={styles.welcomeTitle}>Your world.{ '\n' }Your evolution.</Text>
+        <Text style={styles.welcomeTitle}>Your world.{ '\\n' }Your evolution.</Text>
         <Text style={styles.welcomeCopy}>Connect with people, discover ideas, share what you create, and show how it evolves.</Text>
         <View style={styles.pillarRow}>
           <View style={styles.pillar}><Text style={styles.pillarNumber}>01</Text><Text style={styles.pillarLabel}>CONNECT</Text></View>
@@ -85,9 +124,31 @@ function HomeScreen() {
       </View>
       <View style={styles.feedHeading}>
         <Text style={styles.subheading}>Your feed</Text>
-        <Text style={styles.mutedSmall}>PERSONALIZED FOR YOU</Text>
+        <Text style={styles.mutedSmall}>FOLLOWING</Text>
       </View>
-      <EmptyState title="Your feed starts here" description="Posts from people you follow will appear here. The live social feed will be connected after accounts, publishing, and the follow system are implemented." />
+      {!!message && <Text style={styles.notice}>{message}</Text>}
+      {loading && <EmptyState title="Loading your feed" description="Finding the latest posts from your CREOVA network." />}
+      {!loading && posts.length === 0 && <EmptyState title="Your feed starts here" description="Follow people or publish your first post. Their updates will appear here." />}
+      {posts.map(post => (
+        <View key={post.id} style={styles.postCard}>
+          <View style={styles.postHeader}>
+            <View style={styles.resultAvatar}>
+              <Text style={styles.resultAvatarText}>{(post.author?.display_name || post.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>
+            </View>
+            <View style={styles.postAuthor}>
+              <Text style={styles.resultName}>{post.author?.display_name || 'CREOVA member'}</Text>
+              <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type.toUpperCase()} · {new Date(post.created_at).toLocaleDateString()}</Text>
+            </View>
+          </View>
+          {!!post.caption && <Text style={styles.postCaption}>{post.caption}</Text>}
+          <View style={styles.postActions}>
+            <TouchableOpacity disabled={busyPost === post.id} onPress={() => likePost(post.id)} style={styles.postAction}>
+              <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
+            </TouchableOpacity>
+            <View style={styles.postAction}><Text style={styles.postActionText}>▢ {post.commentCount}</Text></View>
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
@@ -128,13 +189,66 @@ function DiscoverScreen() {
 }
 
 function CreateScreen() {
+  const [caption, setCaption] = useState('');
+  const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
+  const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
+  const [publishing, setPublishing] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  async function publish() {
+    setPublishing(true);
+    setNotice('');
+    try {
+      await createPost({ caption, postType, visibility });
+      setCaption('');
+      setNotice('Published. Your post is now in your CREOVA feed.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>MAKE SOMETHING THAT MOVES</Text>
     <Text style={styles.heading}>Create</Text>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▧</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Post</Text><Text style={styles.optionDescription}>Share a photo, carousel, or video.</Text></View><Text style={styles.optionArrow}>›</Text></View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Create a vertical video for discovery.</Text></View><Text style={styles.optionArrow}>›</Text></View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>⌘</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Anchor</Text><Text style={styles.optionDescription}>Start an idea that others can build on.</Text></View><Text style={styles.optionArrow}>›</Text></View>
-    <Text style={styles.notice}>Publishing is not connected yet. These creation flows will be enabled when secure media storage and publishing services are ready.</Text>
+    <View style={styles.composerCard}>
+      <Text style={styles.composerTitle}>Share an update</Text>
+      <Text style={styles.composerHint}>Start with your words. Photo and video publishing is the next build step.</Text>
+      <TextInput
+        value={caption}
+        onChangeText={setCaption}
+        multiline
+        maxLength={2200}
+        placeholder="What are you creating, learning, or evolving?"
+        placeholderTextColor="#71819C"
+        style={styles.composerInput}
+        textAlignVertical="top"
+      />
+      <Text style={styles.composerCount}>{caption.length}/2200</Text>
+      <Text style={styles.editLabel}>POST FORMAT</Text>
+      <View style={styles.postTypeRow}>
+        {(['post', 'anchor', 'iteration'] as const).map(type => (
+          <TouchableOpacity key={type} onPress={() => setPostType(type)} style={[styles.postTypeChip, postType === type && styles.postTypeChipActive]}>
+            <Text style={[styles.postTypeText, postType === type && styles.postTypeTextActive]}>{type.toUpperCase()}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <Text style={styles.editLabel}>WHO CAN SEE THIS?</Text>
+      <View style={styles.postTypeRow}>
+        {(['public', 'followers'] as const).map(value => (
+          <TouchableOpacity key={value} onPress={() => setVisibility(value)} style={[styles.postTypeChip, visibility === value && styles.postTypeChipActive]}>
+            <Text style={[styles.postTypeText, visibility === value && styles.postTypeTextActive]}>{value === 'public' ? 'PUBLIC' : 'FOLLOWERS'}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <TouchableOpacity disabled={publishing || !caption.trim()} onPress={publish} style={[styles.publishButton, (publishing || !caption.trim()) && styles.publishButtonDisabled]}>
+        <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
+      </TouchableOpacity>
+      {!!notice && <Text style={styles.notice}>{notice}</Text>}
+    </View>
+    <View style={styles.createOption}><Text style={styles.optionSymbol}>▧</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Photo & carousel</Text><Text style={styles.optionDescription}>Image uploads are being connected next.</Text></View><Text style={styles.optionArrow}>›</Text></View>
+    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Vertical video publishing will follow the image pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
 
@@ -341,6 +455,29 @@ const styles = StyleSheet.create({
   optionDescription: { color: COLORS.muted, fontSize: 11 },
   optionArrow: { color: COLORS.muted, fontSize: 25 },
   notice: { color: COLORS.muted, fontSize: 11, lineHeight: 18, paddingHorizontal: 3 },
+  refreshButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 11, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  refreshText: { color: '#A7C6FF', fontSize: 11, fontWeight: '800' },
+  postCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 15, gap: 14 },
+  postHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  postAuthor: { flex: 1, gap: 4 },
+  postCaption: { color: COLORS.text, fontSize: 14, lineHeight: 22 },
+  postActions: { flexDirection: 'row', alignItems: 'center', gap: 20, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
+  postAction: { paddingVertical: 3 },
+  postActionText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  postLiked: { color: '#FF6B91' },
+  composerCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 19, padding: 17, gap: 12 },
+  composerTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  composerHint: { color: COLORS.muted, fontSize: 11, lineHeight: 17 },
+  composerInput: { minHeight: 145, borderRadius: 13, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0B1322', color: COLORS.text, padding: 13, fontSize: 13, lineHeight: 20 },
+  composerCount: { color: COLORS.muted, fontSize: 9, textAlign: 'right' },
+  postTypeRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  postTypeChip: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: '#0B1322' },
+  postTypeChipActive: { borderColor: COLORS.blue, backgroundColor: COLORS.accentSoft },
+  postTypeText: { color: COLORS.muted, fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  postTypeTextActive: { color: '#A7C6FF' },
+  publishButton: { minHeight: 46, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  publishButtonDisabled: { opacity: 0.45 },
+  publishButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
