@@ -6,8 +6,24 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "scheme": "creova",
-    "android": { "package": "club.luxora.creova" },
-    "web": { "bundler": "metro" },
-    "experiments": { "typedRoutes": false }
+    "android": {
+      "package": "club.luxora.creova"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "typedRoutes": false
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CREOVA accesses your photos so you can share images with your community.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ]
+    ]
   }
 }
