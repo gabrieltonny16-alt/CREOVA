@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, searchProfiles, followProfile } from './src/features/profile/profileService';
+import { getMyProfile, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { supabase } from './src/lib/supabase';
 import {
@@ -13,6 +13,7 @@ import {
   TouchableOpacity,
   View,
   useWindowDimensions,
+  Switch,
 } from 'react-native';
 
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -148,12 +149,54 @@ function InboxScreen() {
 function ProfileScreen() {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [error, setError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [bio, setBio] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState('');
+
   useEffect(() => {
     let active = true;
-    getMyProfile().then(value => { if (active) setProfile(value); }).catch(e => { if (active) setError(e instanceof Error ? e.message : 'Could not load your profile.'); });
+    getMyProfile().then(value => {
+      if (!active) return;
+      setProfile(value);
+      setDisplayName(value.display_name);
+      setBio(value.bio);
+      setIsPrivate(value.is_private);
+    }).catch(e => {
+      if (active) setError(e instanceof Error ? e.message : 'Could not load your profile.');
+    });
     return () => { active = false; };
   }, []);
-  async function signOut() { await supabase?.auth.signOut(); }
+
+  async function saveProfile() {
+    if (!displayName.trim()) {
+      setNotice('Your display name cannot be empty.');
+      return;
+    }
+    setSaving(true);
+    setNotice('');
+    try {
+      const updated = await updateMyProfile({
+        display_name: displayName,
+        bio,
+        is_private: isPrivate,
+      });
+      setProfile(updated);
+      setEditing(false);
+      setNotice('Your profile has been updated.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not save your profile.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function signOut() {
+    await supabase?.auth.signOut();
+  }
+
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
     <Text style={styles.heading}>Profile</Text>
@@ -163,6 +206,32 @@ function ProfileScreen() {
       <Text style={styles.profileHandle}>@{profile.username}</Text>
       <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
       <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'PUBLIC ACCOUNT'}</Text>
+      {!!notice && <Text style={styles.notice}>{notice}</Text>}
+      {editing ? <View style={styles.profileEditor}>
+        <Text style={styles.editLabel}>DISPLAY NAME</Text>
+        <TextInput value={displayName} onChangeText={setDisplayName} maxLength={60} style={styles.editInput} placeholder="Your display name" placeholderTextColor="#71819C" />
+        <Text style={styles.editLabel}>BIO</Text>
+        <TextInput value={bio} onChangeText={setBio} maxLength={160} multiline style={[styles.editInput, styles.bioInput]} placeholder="Tell people about yourself" placeholderTextColor="#71819C" />
+        <View style={styles.privacyRow}>
+          <View style={styles.privacyText}>
+            <Text style={styles.editLabel}>PRIVATE ACCOUNT</Text>
+            <Text style={styles.privacyHint}>Only approved followers can follow you.</Text>
+          </View>
+          <Switch value={isPrivate} onValueChange={setIsPrivate} trackColor={{ false: '#34445F', true: '#3985FF' }} thumbColor="#FFFFFF" />
+        </View>
+        <TouchableOpacity disabled={saving} onPress={saveProfile} style={styles.searchButton}>
+          <Text style={styles.searchButtonText}>{saving ? 'Saving…' : 'Save changes'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => {
+          setDisplayName(profile.display_name);
+          setBio(profile.bio);
+          setIsPrivate(profile.is_private);
+          setEditing(false);
+          setNotice('');
+        }} style={styles.signOutButton}><Text style={styles.signOutText}>Cancel</Text></TouchableOpacity>
+      </View> : <TouchableOpacity onPress={() => { setNotice(''); setEditing(true); }} style={styles.signOutButton}>
+        <Text style={styles.signOutText}>Edit profile</Text>
+      </TouchableOpacity>}
       <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
     </View> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and try again.' : 'Your account profile is being loaded from CREOVA.'} />}
     <EmptyState title="Your evolution starts here" description="Your posts, Anchors, Iterations, skills, and proof of execution will come together on your profile." />
@@ -295,6 +364,13 @@ const styles = StyleSheet.create({
   followButtonText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   profileHandle: { color: '#A7C6FF', fontSize: 12, fontWeight: '700' },
   profilePrivacy: { color: COLORS.muted, fontSize: 9, letterSpacing: 1.4, fontWeight: '800' },
+  profileEditor: { width: '100%', gap: 10, marginTop: 8 },
+  editLabel: { color: '#AFC5E8', fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
+  editInput: { minHeight: 46, borderRadius: 11, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0B1322', color: COLORS.text, paddingHorizontal: 12, fontSize: 13 },
+  bioInput: { minHeight: 84, paddingTop: 12, textAlignVertical: 'top' },
+  privacyRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8 },
+  privacyText: { flex: 1, gap: 5 },
+  privacyHint: { color: COLORS.muted, fontSize: 10 },
   signOutButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 11, paddingHorizontal: 16, paddingVertical: 10, marginTop: 8 },
   signOutText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
   bottomNavLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600' }
