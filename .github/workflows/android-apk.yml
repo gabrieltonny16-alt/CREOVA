@@ -6,6 +6,12 @@ on:
       - rebuild/fresh-social-platform
     paths:
       - .github/workflows/android-apk.yml
+      - .github/workflows/ci.yml
+      - App.tsx
+      - app.json
+      - eas.json
+      - package.json
+      - src/**
   workflow_dispatch:
 
 permissions:
