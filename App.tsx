@@ -429,7 +429,7 @@ function MainApp() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="light-content" />
       <View style={styles.app}>
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
