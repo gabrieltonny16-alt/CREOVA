@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, getHomeFeed, togglePostLike } from './src/features/posts/postService';
+import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import {
   SafeAreaView,
   ScrollView,
+  Image,
   StatusBar,
   StyleSheet,
   TextInput,
@@ -140,6 +142,7 @@ function HomeScreen() {
               <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type.toUpperCase()} · {new Date(post.created_at).toLocaleDateString()}</Text>
             </View>
           </View>
+          {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={styles.feedImage} resizeMode="cover" />)}
           {!!post.caption && <Text style={styles.postCaption}>{post.caption}</Text>}
           <View style={styles.postActions}>
             <TouchableOpacity disabled={busyPost === post.id} onPress={() => likePost(post.id)} style={styles.postAction}>
@@ -192,15 +195,65 @@ function CreateScreen() {
   const [caption, setCaption] = useState('');
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
+  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState('');
 
+  async function chooseImage() {
+    setNotice('');
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        if (asset.type && asset.type !== 'image') {
+          setNotice('Choose an image file, not a video.');
+          return;
+        }
+        if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
+          setNotice('Choose an image smaller than 10 MB.');
+          return;
+        }
+        if (asset.mimeType && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
+          setNotice('Use a JPEG, PNG, or WebP image.');
+          return;
+        }
+        setSelectedImage(asset);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not open your photo library.');
+    }
+  }
+
   async function publish() {
+    if (!caption.trim() && !selectedImage) {
+      setNotice('Write a caption or choose an image first.');
+      return;
+    }
     setPublishing(true);
     setNotice('');
     try {
-      await createPost({ caption, postType, visibility });
+      if (selectedImage) {
+        await createPostWithImage({
+          caption,
+          postType,
+          visibility,
+          image: {
+            uri: selectedImage.uri,
+            mimeType: selectedImage.mimeType ?? 'image/jpeg',
+            fileSize: selectedImage.fileSize ?? null,
+            width: selectedImage.width,
+            height: selectedImage.height,
+          },
+        });
+      } else {
+        await createPost({ caption, postType, visibility });
+      }
       setCaption('');
+      setSelectedImage(null);
       setNotice('Published. Your post is now in your CREOVA feed.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
@@ -214,7 +267,7 @@ function CreateScreen() {
     <Text style={styles.heading}>Create</Text>
     <View style={styles.composerCard}>
       <Text style={styles.composerTitle}>Share an update</Text>
-      <Text style={styles.composerHint}>Start with your words. Photo and video publishing is the next build step.</Text>
+      <Text style={styles.composerHint}>Share your words and photos with your CREOVA community.</Text>
       <TextInput
         value={caption}
         onChangeText={setCaption}
@@ -226,6 +279,15 @@ function CreateScreen() {
         textAlignVertical="top"
       />
       <Text style={styles.composerCount}>{caption.length}/2200</Text>
+      <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
+        <Text style={styles.imagePickButtonText}>{selectedImage ? 'Change selected image' : '＋ Add a photo'}</Text>
+      </TouchableOpacity>
+      {selectedImage && <View style={styles.imagePreviewWrap}>
+        <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
+        <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageButton}>
+          <Text style={styles.removeImageText}>Remove image</Text>
+        </TouchableOpacity>
+      </View>}
       <Text style={styles.editLabel}>POST FORMAT</Text>
       <View style={styles.postTypeRow}>
         {(['post', 'anchor', 'iteration'] as const).map(type => (
@@ -242,16 +304,14 @@ function CreateScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <TouchableOpacity disabled={publishing || !caption.trim()} onPress={publish} style={[styles.publishButton, (publishing || !caption.trim()) && styles.publishButtonDisabled]}>
+      <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedImage)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedImage)) && styles.publishButtonDisabled]}>
         <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
       </TouchableOpacity>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▧</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Photo & carousel</Text><Text style={styles.optionDescription}>Image uploads are being connected next.</Text></View><Text style={styles.optionArrow}>›</Text></View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Vertical video publishing will follow the image pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
+    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
-
 function InboxScreen() {
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>STAY IN THE LOOP</Text>
@@ -461,6 +521,13 @@ const styles = StyleSheet.create({
   postHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   postAuthor: { flex: 1, gap: 4 },
   postCaption: { color: COLORS.text, fontSize: 14, lineHeight: 22 },
+  feedImage: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#0B1322' },
+  imagePickButton: { minHeight: 43, borderRadius: 11, borderWidth: 1, borderColor: '#355B9C', backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  imagePickButtonText: { color: '#A7C6FF', fontSize: 12, fontWeight: '800' },
+  imagePreviewWrap: { gap: 8 },
+  imagePreview: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#0B1322' },
+  removeImageButton: { alignSelf: 'flex-start', paddingVertical: 5, paddingHorizontal: 3 },
+  removeImageText: { color: '#FF91A9', fontSize: 11, fontWeight: '700' },
   postActions: { flexDirection: 'row', alignItems: 'center', gap: 20, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
   postAction: { paddingVertical: 3 },
   postActionText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
