@@ -19,6 +19,8 @@ export function AuthScreen() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [username, setUsername] = useState('');
+  const [otp, setOtp] = useState('');
+  const [awaitingOtp, setAwaitingOtp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<'error' | 'success'>('error');
@@ -59,7 +61,6 @@ export function AuthScreen() {
           email: normalizedEmail,
           password,
           options: {
-            emailRedirectTo: 'creova://auth/callback',
             data: {
               display_name: displayName.trim(),
               username: normalizedUsername,
@@ -70,7 +71,8 @@ export function AuthScreen() {
         if (data.session) {
           showMessage('Your CREOVA account is ready. Welcome in!', 'success');
         } else {
-          showMessage('Account request received. Check your email for the confirmation link. After confirming, return here and sign in.', 'success');
+          setAwaitingOtp(true);
+          showMessage('We sent a 6-digit verification code to your email. Enter it below to activate your account.', 'success');
         }
       } else {
         const { error } = await client.auth.signInWithPassword({
@@ -87,7 +89,7 @@ export function AuthScreen() {
       } else if (lowerMessage.includes('already registered') || lowerMessage.includes('already been registered')) {
         showMessage('An account with this email already exists. Switch to Sign in.');
       } else if (lowerMessage.includes('invalid login credentials')) {
-        showMessage('Email or password is incorrect. If you just registered, confirm your email first.');
+        showMessage('Email or password is incorrect. If you just registered, verify your email code first.');
       } else {
         showMessage(rawMessage || 'We could not complete that request. Check your connection and try again.');
       }
@@ -96,11 +98,44 @@ export function AuthScreen() {
     }
   }
 
-  async function resendConfirmation() {
+  async function verifyEmailCode() {
     Keyboard.dismiss();
     setMessage('');
     const normalizedEmail = email.trim().toLowerCase();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalizedEmail)) {
+    const normalizedOtp = otp.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      showMessage('Enter the email address you registered with.');
+      return;
+    }
+    if (!/^\d{6}$/.test(normalizedOtp)) {
+      showMessage('Enter the 6-digit code from your email.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const { error } = await requireSupabase().auth.verifyOtp({
+        email: normalizedEmail,
+        token: normalizedOtp,
+        type: 'email',
+      });
+      if (error) throw error;
+      setAwaitingOtp(false);
+      setOtp('');
+      showMessage('Email verified. Welcome to CREOVA!', 'success');
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : '';
+      showMessage(rawMessage || 'That code could not be verified. Check it and try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendCode() {
+    Keyboard.dismiss();
+    setMessage('');
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       showMessage('Enter your email address above first.');
       return;
     }
@@ -109,13 +144,12 @@ export function AuthScreen() {
       const { error } = await requireSupabase().auth.resend({
         type: 'signup',
         email: normalizedEmail,
-        options: { emailRedirectTo: 'creova://auth/callback' },
       });
       if (error) throw error;
-      showMessage('If this account still needs confirmation, a new email has been requested. Check your inbox and spam folder.', 'success');
+      showMessage('A new verification code has been requested. Check your inbox and spam folder.', 'success');
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : '';
-      showMessage(rawMessage || 'We could not request another confirmation email. Please try again later.');
+      showMessage(rawMessage || 'We could not send another code. Please wait a little and try again.');
     } finally {
       setBusy(false);
     }
@@ -123,6 +157,8 @@ export function AuthScreen() {
 
   function switchMode() {
     Keyboard.dismiss();
+    setAwaitingOtp(false);
+    setOtp('');
     setMode(current => current === 'signin' ? 'signup' : 'signin');
     setMessage('');
   }
@@ -142,10 +178,12 @@ export function AuthScreen() {
           <View style={styles.brandMark}><Text style={styles.brandLetter}>C</Text></View>
           <Text style={styles.brand}>CREOVA</Text>
           <Text style={styles.tagline}>CREATE. CONNECT. EVOLVE.</Text>
-          <Text style={styles.title}>{mode === 'signin' ? 'Welcome back' : 'Create your account'}</Text>
-          <Text style={styles.subtitle}>{mode === 'signin' ? 'Sign in to continue your world' : 'Join CREOVA and start evolving'}</Text>
+          <Text style={styles.title}>{awaitingOtp ? 'Verify your email' : mode === 'signin' ? 'Welcome back' : 'Create your account'}</Text>
+          <Text style={styles.subtitle}>
+            {awaitingOtp ? 'Enter the 6-digit code we sent you' : mode === 'signin' ? 'Sign in to continue your world' : 'Join CREOVA and start evolving'}
+          </Text>
           <View style={styles.card}>
-            {mode === 'signup' && <>
+            {!awaitingOtp && mode === 'signup' && <>
               <Text style={styles.label}>DISPLAY NAME</Text>
               <TextInput
                 value={displayName}
@@ -179,21 +217,40 @@ export function AuthScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               textContentType="emailAddress"
+              editable={!awaitingOtp && !busy}
               returnKeyType="next"
             />
-            <Text style={styles.label}>PASSWORD</Text>
-            <TextInput
-              value={password}
-              onChangeText={setPassword}
-              placeholder="At least 8 characters"
-              placeholderTextColor="#71819C"
-              style={styles.input}
-              secureTextEntry
-              autoCapitalize="none"
-              textContentType={mode === 'signup' ? 'newPassword' : 'password'}
-              returnKeyType="done"
-              onSubmitEditing={submit}
-            />
+            {!awaitingOtp && <>
+              <Text style={styles.label}>PASSWORD</Text>
+              <TextInput
+                value={password}
+                onChangeText={setPassword}
+                placeholder="At least 8 characters"
+                placeholderTextColor="#71819C"
+                style={styles.input}
+                secureTextEntry
+                autoCapitalize="none"
+                textContentType={mode === 'signup' ? 'newPassword' : 'password'}
+                returnKeyType="done"
+                onSubmitEditing={submit}
+              />
+            </>}
+            {awaitingOtp && <>
+              <Text style={styles.label}>6-DIGIT VERIFICATION CODE</Text>
+              <TextInput
+                value={otp}
+                onChangeText={value => setOtp(value.replace(/\D/g, '').slice(0, 6))}
+                placeholder="000000"
+                placeholderTextColor="#71819C"
+                style={[styles.input, styles.otpInput]}
+                keyboardType="number-pad"
+                autoCapitalize="none"
+                maxLength={6}
+                textContentType="oneTimeCode"
+                returnKeyType="done"
+                onSubmitEditing={verifyEmailCode}
+              />
+            </>}
             {!!message && (
               <Text accessibilityRole="alert" style={[styles.message, messageKind === 'success' && styles.successMessage]}>
                 {message}
@@ -201,25 +258,28 @@ export function AuthScreen() {
             )}
             <TouchableOpacity
               disabled={busy}
-              onPress={submit}
+              onPress={awaitingOtp ? verifyEmailCode : submit}
               style={[styles.primary, busy && styles.disabled]}
               accessibilityRole="button"
-              accessibilityLabel={mode === 'signin' ? 'Sign in' : 'Create account'}
+              accessibilityLabel={awaitingOtp ? 'Verify email' : mode === 'signin' ? 'Sign in' : 'Create account'}
             >
               {busy
                 ? <ActivityIndicator color="#FFFFFF" />
-                : <Text style={styles.primaryText}>{mode === 'signin' ? 'Sign in' : 'Create account'}</Text>}
+                : <Text style={styles.primaryText}>{awaitingOtp ? 'Verify email' : mode === 'signin' ? 'Sign in' : 'Create account'}</Text>}
             </TouchableOpacity>
-            {mode === 'signin' && (
-              <TouchableOpacity disabled={busy} onPress={resendConfirmation} style={styles.switch} accessibilityRole="button">
-                <Text style={styles.switchText}>Resend confirmation email</Text>
+            {awaitingOtp && <>
+              <TouchableOpacity disabled={busy} onPress={resendCode} style={styles.switch} accessibilityRole="button">
+                <Text style={styles.switchText}>Resend verification code</Text>
               </TouchableOpacity>
-            )}
-            <TouchableOpacity disabled={busy} onPress={switchMode} style={styles.switch} accessibilityRole="button">
+              <TouchableOpacity disabled={busy} onPress={() => { setAwaitingOtp(false); setOtp(''); setMessage(''); }} style={styles.switch} accessibilityRole="button">
+                <Text style={styles.switchText}>Back to account details</Text>
+              </TouchableOpacity>
+            </>}
+            {!awaitingOtp && <TouchableOpacity disabled={busy} onPress={switchMode} style={styles.switch} accessibilityRole="button">
               <Text style={styles.switchText}>
                 {mode === 'signin' ? 'New to CREOVA?  Create an account' : 'Already have an account?  Sign in'}
               </Text>
-            </TouchableOpacity>
+            </TouchableOpacity>}
           </View>
           <Text style={styles.footnote}>Account details are handled by CREOVA's configured authentication service.</Text>
         </View>
@@ -241,6 +301,7 @@ const styles = StyleSheet.create({
   card: { width: '100%', maxWidth: 430, backgroundColor: '#111A2B', borderColor: '#263650', borderWidth: 1, borderRadius: 22, padding: 20, gap: 10 },
   label: { color: '#AFC5E8', fontSize: 9, fontWeight: '800', letterSpacing: 1.5, marginTop: 4 },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: '#263650', backgroundColor: '#0B1322', color: '#F5F7FF', paddingHorizontal: 14, fontSize: 14 },
+  otpInput: { fontSize: 25, fontWeight: '800', letterSpacing: 10, textAlign: 'center' },
   message: { color: '#F4C77B', fontSize: 12, lineHeight: 18 },
   successMessage: { color: '#8EDDB5' },
   primary: { minHeight: 49, borderRadius: 13, backgroundColor: '#3985FF', alignItems: 'center', justifyContent: 'center', marginTop: 5 },
