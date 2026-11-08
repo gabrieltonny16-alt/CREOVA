@@ -6,8 +6,8 @@ import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
+import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  SafeAreaView,
   ScrollView,
   Image,
   StatusBar,
@@ -415,6 +415,7 @@ function ProfileScreen() {
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isWide = width >= 760;
 
   const renderScreen = () => {
@@ -447,7 +448,7 @@ function MainApp() {
             <View style={[styles.contentMax, isWide && styles.contentMaxWide]}>{renderScreen()}</View>
           </ScrollView>
         </View>
-        {!isWide && <View style={styles.bottomNav}>
+        {!isWide && <View style={[styles.bottomNav, { height: 66 + insets.bottom, paddingBottom: Math.max(insets.bottom, 8) }]}>
           {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
             <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
             <Text style={[styles.bottomNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
@@ -582,5 +583,5 @@ const styles = StyleSheet.create({
 
 
 export default function App() {
-  return <AuthGate><MainApp /></AuthGate>;
+  return <SafeAreaProvider><AuthGate><MainApp /></AuthGate></SafeAreaProvider>;
 }
