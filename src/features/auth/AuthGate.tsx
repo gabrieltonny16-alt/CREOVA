@@ -1,8 +1,39 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import type { Session } from '@supabase/supabase-js';
 import { AuthScreen } from './AuthScreen';
 import { isSupabaseConfigured, supabase } from '../../lib/supabase';
+
+async function handleAuthCallback(url: string) {
+  if (!supabase || !url.startsWith('creova://auth/callback')) return;
+
+  const query = url.includes('?') ? url.split('?')[1].split('#')[0] : '';
+  const hash = url.includes('#') ? url.slice(url.indexOf('#') + 1) : '';
+  const params = new URLSearchParams([query, hash].filter(Boolean).join('&'));
+
+  const errorDescription = params.get('error_description') || params.get('error');
+  if (errorDescription) {
+    console.warn('CREOVA email verification failed:', errorDescription);
+    return;
+  }
+
+  const code = params.get('code');
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(url);
+    if (error) throw error;
+    return;
+  }
+
+  const accessToken = params.get('access_token');
+  const refreshToken = params.get('refresh_token');
+  if (accessToken && refreshToken) {
+    const { error } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+    if (error) throw error;
+  }
+}
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -22,13 +53,28 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }).catch(() => {
       if (alive) setLoading(false);
     });
+
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setLoading(false);
     });
+
+    const processUrl = (url: string | null) => {
+      if (url) {
+        void handleAuthCallback(url).catch(error => {
+          console.warn('CREOVA auth callback could not be processed:', error);
+        });
+      }
+    };
+    void Linking.getInitialURL().then(processUrl).catch(error => {
+      console.warn('CREOVA could not read the initial auth link:', error);
+    });
+    const linkSubscription = Linking.addEventListener('url', event => processUrl(event.url));
+
     return () => {
       alive = false;
       listener.subscription.unsubscribe();
+      linkSubscription.remove();
     };
   }, []);
 
