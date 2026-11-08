@@ -1,5 +1,16 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { requireSupabase } from '../../lib/supabase';
 
 export function AuthScreen() {
@@ -10,86 +21,201 @@ export function AuthScreen() {
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [messageKind, setMessageKind] = useState<'error' | 'success'>('error');
+
+  function showMessage(value: string, kind: 'error' | 'success' = 'error') {
+    setMessage(value);
+    setMessageKind(kind);
+  }
 
   async function submit() {
+    Keyboard.dismiss();
     setMessage('');
-    if (!email.trim() || password.length < 8) {
-      setMessage('Enter a valid email and a password of at least 8 characters.');
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = username.trim().toLowerCase();
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      showMessage('Enter a valid email address.');
       return;
     }
-    if (mode === 'signup' && (!displayName.trim() || !/^[a-z0-9_]{3,24}$/.test(username.trim().toLowerCase()))) {
-      setMessage('Add your display name and a username (3–24 letters, numbers, or underscores).');
+    if (password.length < 8) {
+      showMessage('Your password must be at least 8 characters.');
       return;
     }
+    if (mode === 'signup' && !displayName.trim()) {
+      showMessage('Enter your display name.');
+      return;
+    }
+    if (mode === 'signup' && !/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+      showMessage('Choose a username with 3–24 letters, numbers, or underscores.');
+      return;
+    }
+
     setBusy(true);
     try {
       const client = requireSupabase();
       if (mode === 'signup') {
         const { data, error } = await client.auth.signUp({
-          email: email.trim().toLowerCase(),
+          email: normalizedEmail,
           password,
-          options: { data: { display_name: displayName.trim(), username: username.trim().toLowerCase() } },
+          options: {
+            data: {
+              display_name: displayName.trim(),
+              username: normalizedUsername,
+            },
+          },
         });
         if (error) throw error;
-        setMessage(data.session ? 'Your CREOVA account is ready.' : 'Check your email to confirm your account, then sign in.');
+        if (data.session) {
+          showMessage('Your CREOVA account is ready. Welcome in!', 'success');
+        } else {
+          showMessage('Account request received. Check your email for the confirmation link. After confirming, return here and sign in.', 'success');
+        }
       } else {
-        const { error } = await client.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+        const { error } = await client.auth.signInWithPassword({
+          email: normalizedEmail,
+          password,
+        });
         if (error) throw error;
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Something went wrong. Please try again.');
+      const rawMessage = error instanceof Error ? error.message : '';
+      const lowerMessage = rawMessage.toLowerCase();
+      if (lowerMessage.includes('username') && (lowerMessage.includes('already') || lowerMessage.includes('duplicate') || lowerMessage.includes('unique'))) {
+        showMessage('That username is already taken. Choose another one.');
+      } else if (lowerMessage.includes('already registered') || lowerMessage.includes('already been registered')) {
+        showMessage('An account with this email already exists. Switch to Sign in.');
+      } else if (lowerMessage.includes('invalid login credentials')) {
+        showMessage('Email or password is incorrect. If you just registered, confirm your email first.');
+      } else {
+        showMessage(rawMessage || 'We could not complete that request. Check your connection and try again.');
+      }
     } finally {
       setBusy(false);
     }
   }
 
+  function switchMode() {
+    Keyboard.dismiss();
+    setMode(current => current === 'signin' ? 'signup' : 'signin');
+    setMessage('');
+  }
+
   return (
-    <View style={styles.page}>
-      <View style={styles.brandMark}><Text style={styles.brandLetter}>C</Text></View>
-      <Text style={styles.brand}>CREOVA</Text>
-      <Text style={styles.tagline}>CREATE. CONNECT. EVOLVE.</Text>
-      <Text style={styles.title}>{mode === 'signin' ? 'Welcome back.' : 'Find your place.'}</Text>
-      <Text style={styles.subtitle}>{mode === 'signin' ? 'Sign in to continue your world.' : 'Create your identity and start evolving.'}</Text>
-      <View style={styles.card}>
-        {mode === 'signup' && <>
-          <Text style={styles.label}>DISPLAY NAME</Text>
-          <TextInput value={displayName} onChangeText={setDisplayName} placeholder="Your name" placeholderTextColor="#71819C" style={styles.input} autoCapitalize="words" />
-          <Text style={styles.label}>USERNAME</Text>
-          <TextInput value={username} onChangeText={setUsername} placeholder="your_username" placeholderTextColor="#71819C" style={styles.input} autoCapitalize="none" autoCorrect={false} />
-        </>}
-        <Text style={styles.label}>EMAIL</Text>
-        <TextInput value={email} onChangeText={setEmail} placeholder="you@example.com" placeholderTextColor="#71819C" style={styles.input} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
-        <Text style={styles.label}>PASSWORD</Text>
-        <TextInput value={password} onChangeText={setPassword} placeholder="At least 8 characters" placeholderTextColor="#71819C" style={styles.input} secureTextEntry autoCapitalize="none" />
-        {!!message && <Text accessibilityRole="alert" style={styles.message}>{message}</Text>}
-        <TouchableOpacity disabled={busy} onPress={submit} style={[styles.primary, busy && styles.disabled]} accessibilityRole="button">
-          {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryText}>{mode === 'signin' ? 'Sign in' : 'Create account'}</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); }} style={styles.switch}>
-          <Text style={styles.switchText}>{mode === 'signin' ? 'New to CREOVA?  Create an account' : 'Already have an account?  Sign in'}</Text>
-        </TouchableOpacity>
-      </View>
-      <Text style={styles.footnote}>Account details are handled by CREOVA's configured authentication service.</Text>
-    </View>
+    <KeyboardAvoidingView
+      style={styles.keyboardPage}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.page}>
+          <View style={styles.brandMark}><Text style={styles.brandLetter}>C</Text></View>
+          <Text style={styles.brand}>CREOVA</Text>
+          <Text style={styles.tagline}>CREATE. CONNECT. EVOLVE.</Text>
+          <Text style={styles.title}>{mode === 'signin' ? 'Welcome back' : 'Create your account'}</Text>
+          <Text style={styles.subtitle}>{mode === 'signin' ? 'Sign in to continue your world' : 'Join CREOVA and start evolving'}</Text>
+          <View style={styles.card}>
+            {mode === 'signup' && <>
+              <Text style={styles.label}>DISPLAY NAME</Text>
+              <TextInput
+                value={displayName}
+                onChangeText={setDisplayName}
+                placeholder="Your name"
+                placeholderTextColor="#71819C"
+                style={styles.input}
+                autoCapitalize="words"
+                returnKeyType="next"
+              />
+              <Text style={styles.label}>USERNAME</Text>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                placeholder="your_username"
+                placeholderTextColor="#71819C"
+                style={styles.input}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+              />
+            </>}
+            <Text style={styles.label}>EMAIL</Text>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="you@example.com"
+              placeholderTextColor="#71819C"
+              style={styles.input}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              textContentType="emailAddress"
+              returnKeyType="next"
+            />
+            <Text style={styles.label}>PASSWORD</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="At least 8 characters"
+              placeholderTextColor="#71819C"
+              style={styles.input}
+              secureTextEntry
+              autoCapitalize="none"
+              textContentType={mode === 'signup' ? 'newPassword' : 'password'}
+              returnKeyType="done"
+              onSubmitEditing={submit}
+            />
+            {!!message && (
+              <Text accessibilityRole="alert" style={[styles.message, messageKind === 'success' && styles.successMessage]}>
+                {message}
+              </Text>
+            )}
+            <TouchableOpacity
+              disabled={busy}
+              onPress={submit}
+              style={[styles.primary, busy && styles.disabled]}
+              accessibilityRole="button"
+              accessibilityLabel={mode === 'signin' ? 'Sign in' : 'Create account'}
+            >
+              {busy
+                ? <ActivityIndicator color="#FFFFFF" />
+                : <Text style={styles.primaryText}>{mode === 'signin' ? 'Sign in' : 'Create account'}</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity disabled={busy} onPress={switchMode} style={styles.switch} accessibilityRole="button">
+              <Text style={styles.switchText}>
+                {mode === 'signin' ? 'New to CREOVA?  Create an account' : 'Already have an account?  Sign in'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.footnote}>Account details are handled by CREOVA's configured authentication service.</Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#090D18', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 36, alignItems: 'center' },
+  keyboardPage: { flex: 1, backgroundColor: '#090D18' },
+  scrollContent: { flexGrow: 1 },
+  page: { flexGrow: 1, backgroundColor: '#090D18', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
   brandMark: { width: 52, height: 52, borderRadius: 17, backgroundColor: '#172D55', borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   brandLetter: { color: '#A7C6FF', fontSize: 31, fontWeight: '900' },
   brand: { color: '#F5F7FF', fontSize: 20, fontWeight: '900', letterSpacing: 3, marginTop: 10 },
   tagline: { color: '#9AAAC4', fontSize: 9, letterSpacing: 1.6, marginTop: 4 },
-  title: { color: '#F5F7FF', fontSize: 30, fontWeight: '900', marginTop: 32 },
-  subtitle: { color: '#9AAAC4', fontSize: 13, marginTop: 7, marginBottom: 22, textAlign: 'center' },
+  title: { color: '#F5F7FF', fontSize: 30, fontWeight: '900', marginTop: 28, textAlign: 'center' },
+  subtitle: { color: '#9AAAC4', fontSize: 13, marginTop: 7, marginBottom: 20, textAlign: 'center' },
   card: { width: '100%', maxWidth: 430, backgroundColor: '#111A2B', borderColor: '#263650', borderWidth: 1, borderRadius: 22, padding: 20, gap: 10 },
   label: { color: '#AFC5E8', fontSize: 9, fontWeight: '800', letterSpacing: 1.5, marginTop: 4 },
   input: { minHeight: 48, borderRadius: 12, borderWidth: 1, borderColor: '#263650', backgroundColor: '#0B1322', color: '#F5F7FF', paddingHorizontal: 14, fontSize: 14 },
   message: { color: '#F4C77B', fontSize: 12, lineHeight: 18 },
+  successMessage: { color: '#8EDDB5' },
   primary: { minHeight: 49, borderRadius: 13, backgroundColor: '#3985FF', alignItems: 'center', justifyContent: 'center', marginTop: 5 },
   disabled: { opacity: 0.65 },
   primaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
   switch: { paddingVertical: 10, alignItems: 'center' },
   switchText: { color: '#AFC5E8', fontSize: 12, fontWeight: '600', textAlign: 'center' },
-  footnote: { color: '#71819C', fontSize: 10, textAlign: 'center', marginTop: 18, maxWidth: 330, lineHeight: 16 }
+  footnote: { color: '#71819C', fontSize: 10, textAlign: 'center', marginTop: 18, maxWidth: 330, lineHeight: 16 },
 });
