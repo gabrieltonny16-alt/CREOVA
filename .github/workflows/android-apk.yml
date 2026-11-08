@@ -57,11 +57,24 @@ jobs:
       - name: Generate native Android project
         run: npx expo prebuild --platform android --no-install
 
-      - name: Set up Gradle and restore dependency cache
-        uses: gradle/actions/setup-gradle@v6
+      - name: Restore Gradle dependency cache
+        uses: actions/cache@v4
         with:
-          gradle-version: "9.4.1"
-          cache-provider: basic
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install Gradle from distribution host
+        run: |
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 600 \
+            https://downloads.gradle.org/distributions/gradle-9.4.1-bin.zip \
+            --output /tmp/gradle-9.4.1-bin.zip
+          mkdir -p "$HOME/gradle"
+          unzip -q /tmp/gradle-9.4.1-bin.zip -d "$HOME/gradle"
+          echo "$HOME/gradle/gradle-9.4.1/bin" >> "$GITHUB_PATH"
 
       - name: Build installable release APK with bundled JavaScript
         run: |
