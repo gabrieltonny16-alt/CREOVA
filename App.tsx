@@ -448,7 +448,7 @@ function MainApp() {
             <View style={[styles.contentMax, isWide && styles.contentMaxWide]}>{renderScreen()}</View>
           </ScrollView>
         </View>
-        {!isWide && <View style={[styles.bottomNav, { height: 66 + insets.bottom, paddingBottom: Math.max(insets.bottom, 8) }]}>
+        {!isWide && <View style={[styles.bottomNav, { height: 66 + insets.bottom, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 8) }]}>
           {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
             <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
             <Text style={[styles.bottomNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
