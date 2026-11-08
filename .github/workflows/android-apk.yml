@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - rebuild/fresh-social-platform
+      - rebuild/android-bottom-safe-area
     paths:
       - .github/workflows/android-apk.yml
       - .github/workflows/ci.yml
