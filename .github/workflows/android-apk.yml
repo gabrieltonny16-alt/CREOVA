@@ -55,13 +55,18 @@ jobs:
         run: npm run typecheck
 
       - name: Generate native Android project
-        run: npx expo prebuild --platform android --no-install --non-interactive
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Set up Gradle and restore dependency cache
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: "9.4.1"
+          cache-provider: basic
 
       - name: Build installable release APK with bundled JavaScript
         run: |
-          chmod +x android/gradlew
           cd android
-          ./gradlew --no-daemon assembleRelease
+          gradle --no-daemon assembleRelease
           test -s app/build/outputs/apk/release/app-release.apk
           find app/build -type f -name index.android.bundle -size +0c | grep -q .
 
