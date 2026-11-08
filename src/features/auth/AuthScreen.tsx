@@ -96,6 +96,31 @@ export function AuthScreen() {
     }
   }
 
+  async function resendConfirmation() {
+    Keyboard.dismiss();
+    setMessage('');
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalizedEmail)) {
+      showMessage('Enter your email address above first.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { error } = await requireSupabase().auth.resend({
+        type: 'signup',
+        email: normalizedEmail,
+        options: { emailRedirectTo: 'creova://auth/callback' },
+      });
+      if (error) throw error;
+      showMessage('If this account still needs confirmation, a new email has been requested. Check your inbox and spam folder.', 'success');
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : '';
+      showMessage(rawMessage || 'We could not request another confirmation email. Please try again later.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function switchMode() {
     Keyboard.dismiss();
     setMode(current => current === 'signin' ? 'signup' : 'signin');
@@ -185,6 +210,11 @@ export function AuthScreen() {
                 ? <ActivityIndicator color="#FFFFFF" />
                 : <Text style={styles.primaryText}>{mode === 'signin' ? 'Sign in' : 'Create account'}</Text>}
             </TouchableOpacity>
+            {mode === 'signin' && (
+              <TouchableOpacity disabled={busy} onPress={resendConfirmation} style={styles.switch} accessibilityRole="button">
+                <Text style={styles.switchText}>Resend confirmation email</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity disabled={busy} onPress={switchMode} style={styles.switch} accessibilityRole="button">
               <Text style={styles.switchText}>
                 {mode === 'signin' ? 'New to CREOVA?  Create an account' : 'Already have an account?  Sign in'}
