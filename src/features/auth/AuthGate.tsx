@@ -59,7 +59,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       setLoading(false);
     });
 
-    const processUrl = (url: string | null) => {
+    const processUrl = (url: string | null | undefined) => {
       if (url) {
         void handleAuthCallback(url).catch(error => {
           console.warn('CREOVA auth callback could not be processed:', error);
