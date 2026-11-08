@@ -19,7 +19,7 @@ async function handleAuthCallback(url: string) {
 
   const code = params.get('code');
   if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(url);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) throw error;
     return;
   }
