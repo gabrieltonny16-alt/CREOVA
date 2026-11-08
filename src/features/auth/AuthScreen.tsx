@@ -59,6 +59,7 @@ export function AuthScreen() {
           email: normalizedEmail,
           password,
           options: {
+            emailRedirectTo: 'creova://auth/callback',
             data: {
               display_name: displayName.trim(),
               username: normalizedUsername,
