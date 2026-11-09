@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, searchProfiles, followProfile, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -158,20 +158,33 @@ function HomeScreen() {
 
 function DiscoverScreen() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
+  const [results, setResults] = useState<Array<Awaited<ReturnType<typeof searchProfiles>>[number] & { followState: 'none' | 'requested' | 'following' }>>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyFollowId, setBusyFollowId] = useState('');
   async function search() {
     setBusy(true); setMessage('');
-    try { setResults(await searchProfiles(query)); }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Search failed.'); }
+    try {
+      const profiles = await searchProfiles(query);
+      const states = await getFollowStates(profiles.map(item => item.id));
+      setResults(profiles.map(item => ({ ...item, followState: states[item.id] ?? 'none' })));
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Search failed.'); }
     finally { setBusy(false); }
   }
-  async function follow(id: string) {
+  async function toggleFollow(id: string) {
+    const current = results.find(item => item.id === id);
+    if (!current || busyFollowId) return;
+    setBusyFollowId(id);
     try {
-      const result = await followProfile(id);
-      setResults(items => items.map(item => item.id === id ? { ...item, followState: result } as typeof item : item));
+      if (current.followState === 'following' || current.followState === 'requested') {
+        await unfollowProfile(id);
+        setResults(items => items.map(item => item.id === id ? { ...item, followState: 'none' } : item));
+      } else {
+        const state = await followProfile(id);
+        setResults(items => items.map(item => item.id === id ? { ...item, followState: state } : item));
+      }
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Follow action failed.'); }
+    finally { setBusyFollowId(''); }
   }
   return <View style={styles.screenContent}>
     <Text style={styles.eyebrow}>FIND YOUR PEOPLE</Text>
@@ -184,7 +197,7 @@ function DiscoverScreen() {
     {results.map(item => <View key={item.id} style={styles.resultRow}>
       <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
       <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
-      <TouchableOpacity onPress={() => follow(item.id)} style={styles.followButton}><Text style={styles.followButtonText}>{(item as typeof item & {followState?: string}).followState === 'requested' ? 'Requested' : (item as typeof item & {followState?: string}).followState === 'following' ? 'Following' : 'Follow'}</Text></TouchableOpacity>
+      <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton}><Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text></TouchableOpacity>
     </View>)}
     {query.trim().length < 2 && <EmptyState title="Discover something new" description="Search for CREOVA members by username. More discovery feeds and trending topics will follow." />}
     {query.trim().length >= 2 && !busy && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
