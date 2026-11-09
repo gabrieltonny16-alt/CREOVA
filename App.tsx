@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, searchProfiles, followProfile, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -332,6 +332,7 @@ function ProfileScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   async function loadProfile() {
     setError('');
@@ -351,6 +352,56 @@ function ProfileScreen() {
   useEffect(() => {
     loadProfile();
   }, []);
+
+  async function chooseAvatar() {
+    setNotice('');
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setNotice('Allow photo library access to choose a profile picture.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType ?? 'image/jpeg';
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+        setNotice('Choose a JPEG, PNG, or WebP image.');
+        return;
+      }
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        setNotice('Choose an image smaller than 5 MB.');
+        return;
+      }
+      setAvatarBusy(true);
+      const updated = await uploadMyAvatar({ uri: asset.uri, mimeType });
+      setProfile(updated);
+      setNotice('Profile photo updated.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not upload your profile photo.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function deleteAvatar() {
+    setAvatarBusy(true);
+    setNotice('');
+    try {
+      const updated = await removeMyAvatar();
+      setProfile(updated);
+      setNotice('Profile photo removed.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not remove your profile photo.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
 
   async function saveProfile() {
     if (!displayName.trim()) {
@@ -391,7 +442,15 @@ function ProfileScreen() {
     {profile ? <>
       <View style={styles.profileHero}>
         <View style={styles.profileHeroTop}>
-          {profile.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} resizeMode="cover" /> : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>}
+          <View style={styles.avatarColumn}>
+            {profile.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} resizeMode="cover" /> : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>}
+            <TouchableOpacity disabled={avatarBusy} onPress={chooseAvatar} style={styles.avatarAction}>
+              <Text style={styles.avatarActionText}>{avatarBusy ? 'Uploading…' : profile.avatar_url ? 'Change photo' : 'Add photo'}</Text>
+            </TouchableOpacity>
+            {profile.avatar_url && <TouchableOpacity disabled={avatarBusy} onPress={deleteAvatar} style={styles.avatarRemoveAction}>
+              <Text style={styles.avatarRemoveText}>Remove</Text>
+            </TouchableOpacity>}
+          </View>
           <View style={styles.profileIdentity}>
             <Text style={styles.profileName}>{profile.display_name}</Text>
             <Text style={styles.profileHandle}>@{profile.username}</Text>
@@ -614,6 +673,11 @@ const styles = StyleSheet.create({
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
   profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
+  avatarColumn: { width: 88, alignItems: 'center', gap: 6 },
+  avatarAction: { minWidth: 78, alignItems: 'center', paddingVertical: 5, paddingHorizontal: 7, borderRadius: 8, backgroundColor: COLORS.accentSoft },
+  avatarActionText: { color: '#A7C6FF', fontSize: 9, fontWeight: '800' },
+  avatarRemoveAction: { paddingVertical: 2 },
+  avatarRemoveText: { color: COLORS.muted, fontSize: 9, fontWeight: '700' },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   avatarImage: { width: 76, height: 76, borderRadius: 28, borderWidth: 1, borderColor: '#4268A4', backgroundColor: COLORS.accentSoft },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
