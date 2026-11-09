@@ -18,7 +18,4 @@ FROM anon;
 REVOKE UPDATE ON TABLE public.user_follows FROM authenticated;
 GRANT UPDATE (status) ON TABLE public.user_follows TO authenticated;
 
--- A user cannot follow their own account, even through a direct API request.
-ALTER TABLE public.user_follows
-  ADD CONSTRAINT user_follows_no_self_follow
-  CHECK (follower_id <> following_id);
+-- user_follows_no_self_follow already exists in the baseline schema.
