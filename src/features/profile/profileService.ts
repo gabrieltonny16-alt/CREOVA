@@ -46,6 +46,29 @@ export async function searchProfiles(search: string): Promise<Pick<CreovaProfile
   return data ?? [];
 }
 
+export type FollowState = 'none' | 'requested' | 'following';
+
+export async function getFollowStates(targetUserIds: string[]): Promise<Record<string, FollowState>> {
+  if (!targetUserIds.length) return {};
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  const { data, error } = await client.from('user_follows')
+    .select('following_id, status')
+    .eq('follower_id', auth.user.id)
+    .in('following_id', targetUserIds);
+  if (error) throw error;
+
+  const states: Record<string, FollowState> = {};
+  for (const relation of data ?? []) {
+    if (relation.status === 'accepted') states[relation.following_id] = 'following';
+    else if (relation.status === 'pending') states[relation.following_id] = 'requested';
+  }
+  return states;
+}
+
 export async function followProfile(targetUserId: string): Promise<'requested' | 'following'> {
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
@@ -55,6 +78,22 @@ export async function followProfile(targetUserId: string): Promise<'requested' |
   const { data: target, error: targetError } = await client.from('profiles').select('is_private').eq('id', targetUserId).single();
   if (targetError) throw targetError;
   const status = target.is_private ? 'pending' : 'accepted';
+  const { data: existing, error: existingError } = await client.from('user_follows')
+    .select('status')
+    .eq('follower_id', userData.user.id)
+    .eq('following_id', targetUserId)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.status === 'accepted') return 'following';
+  if (existing?.status === 'pending') return 'requested';
+  if (existing?.status === 'rejected') {
+    const { error: deleteError } = await client.from('user_follows').delete()
+      .eq('follower_id', userData.user.id)
+      .eq('following_id', targetUserId)
+      .eq('status', 'rejected');
+    if (deleteError) throw deleteError;
+  }
+
   const { error } = await client.from('user_follows').insert({
     follower_id: userData.user.id,
     following_id: targetUserId,
