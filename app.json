@@ -9,7 +9,7 @@
     "android": {
       "package": "club.luxora.creova",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/brand/creova-icon.png",
+        "foregroundImage": "./assets/brand/file_0000000090c08243accc09249f2c031f.png",
         "backgroundColor": "#000000"
       }
     },
@@ -29,6 +29,6 @@
         }
       ]
     ],
-    "icon": "./assets/brand/creova-icon.png"
+    "icon": "./assets/brand/file_0000000090c08243accc09249f2c031f.png"
   }
 }
