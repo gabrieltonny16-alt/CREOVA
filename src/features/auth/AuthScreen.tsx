@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+// The authentication header uses the complete CREOVA brand icon.
 import {
   ActivityIndicator,
   Keyboard,
