@@ -109,3 +109,59 @@ export async function getMyProfileCounts(): Promise<CreovaProfileCounts> {
     following: following.count ?? 0,
   };
 }
+
+
+export async function uploadMyAvatar(input: { uri: string; mimeType: string }): Promise<CreovaProfile> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(input.mimeType)) throw new Error('Choose a JPEG, PNG, or WebP image.');
+
+  const response = await fetch(input.uri);
+  if (!response.ok) throw new Error('Could not read the selected image.');
+  const fileData = await response.arrayBuffer();
+  if (fileData.byteLength > 5 * 1024 * 1024) throw new Error('Choose an image smaller than 5 MB.');
+
+  const extension = input.mimeType === 'image/png' ? 'png' : input.mimeType === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${auth.user.id}/avatar.${extension}`;
+  const { error: uploadError } = await client.storage.from('profile-avatars').upload(path, fileData, {
+    contentType: input.mimeType,
+    cacheControl: '3600',
+    upsert: true,
+  });
+  if (uploadError) throw uploadError;
+
+  const { data: publicData } = client.storage.from('profile-avatars').getPublicUrl(path);
+  const { data, error } = await client.from('profiles').update({
+    avatar_url: publicData.publicUrl,
+    updated_at: new Date().toISOString(),
+  }).eq('id', auth.user.id).select('*').single();
+  if (error) throw error;
+  return data as CreovaProfile;
+}
+
+export async function removeMyAvatar(): Promise<CreovaProfile> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  const current = await getMyProfile();
+  const { data, error } = await client.from('profiles').update({
+    avatar_url: null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', auth.user.id).select('*').single();
+  if (error) throw error;
+
+  const marker = '/profile-avatars/';
+  const markerIndex = current.avatar_url?.indexOf(marker) ?? -1;
+  if (markerIndex >= 0 && current.avatar_url) {
+    const path = decodeURIComponent(current.avatar_url.slice(markerIndex + marker.length).split('?')[0]);
+    const { error: removeError } = await client.storage.from('profile-avatars').remove([path]);
+    if (removeError) throw removeError;
+  }
+  return data as CreovaProfile;
+}
