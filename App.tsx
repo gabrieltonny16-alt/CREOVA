@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -326,10 +326,74 @@ function CreateScreen() {
   </View>;
 }
 function InboxScreen() {
+  const [requests, setRequests] = useState<Awaited<ReturnType<typeof getIncomingFollowRequests>>>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState('');
+  const [message, setMessage] = useState('');
+
+  async function loadRequests() {
+    setLoading(true);
+    setMessage('');
+    try {
+      setRequests(await getIncomingFollowRequests());
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load follow requests.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadRequests();
+  }, []);
+
+  async function respond(followerId: string, accept: boolean) {
+    if (busyId) return;
+    setBusyId(followerId);
+    setMessage('');
+    try {
+      await respondToFollowRequest(followerId, accept);
+      setRequests(items => items.filter(item => item.follower_id !== followerId));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update this request.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
   return <View style={styles.screenContent}>
-    <Text style={styles.eyebrow}>STAY IN THE LOOP</Text>
-    <Text style={styles.heading}>Inbox</Text>
-    <EmptyState title="Your conversations will appear here" description="Private and group messaging will be connected after the conversation service, privacy rules, and real-time delivery are implemented." />
+    <View style={styles.sectionHeading}>
+      <View>
+        <Text style={styles.eyebrow}>YOUR CONNECTIONS</Text>
+        <Text style={styles.heading}>Follow requests</Text>
+      </View>
+      <TouchableOpacity onPress={loadRequests} disabled={loading} style={styles.refreshButton}>
+        <Text style={styles.refreshText}>{loading ? '…' : '↻ Refresh'}</Text>
+      </TouchableOpacity>
+    </View>
+    <Text style={styles.mutedSmall}>{requests.length} PENDING REQUEST{requests.length === 1 ? '' : 'S'}</Text>
+    {!!message && <Text style={styles.notice}>{message}</Text>}
+    {loading && <EmptyState title="Checking requests" description="Loading people who want to follow you." />}
+    {!loading && requests.length === 0 && <EmptyState title="You're all caught up" description="New follow requests will appear here. Direct and group messaging will be added as its own complete feature." />}
+    {requests.map(item => <View key={item.follower_id} style={styles.requestCard}>
+      <View style={styles.resultAvatar}>
+        {item.follower.avatar_url
+          ? <Image source={{ uri: item.follower.avatar_url }} style={styles.requestAvatarImage} />
+          : <Text style={styles.resultAvatarText}>{(item.follower.display_name || item.follower.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+      </View>
+      <View style={styles.resultInfo}>
+        <Text style={styles.resultName}>{item.follower.display_name || item.follower.username}</Text>
+        <Text style={styles.resultHandle}>@{item.follower.username} · {new Date(item.created_at).toLocaleDateString()}</Text>
+      </View>
+      <View style={styles.requestActions}>
+        <TouchableOpacity disabled={!!busyId} onPress={() => respond(item.follower_id, true)} style={styles.acceptRequestButton}>
+          <Text style={styles.acceptRequestText}>{busyId === item.follower_id ? '…' : 'Accept'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity disabled={!!busyId} onPress={() => respond(item.follower_id, false)} style={styles.declineRequestButton}>
+          <Text style={styles.declineRequestText}>Decline</Text>
+        </TouchableOpacity>
+      </View>
+    </View>)}
   </View>;
 }
 
@@ -710,6 +774,14 @@ const styles = StyleSheet.create({
   resultInfo: { flex: 1, gap: 4 },
   resultName: { color: COLORS.text, fontSize: 13, fontWeight: '800' },
   resultHandle: { color: COLORS.muted, fontSize: 10 },
+  requestCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 15, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+  requestAvatarImage: { width: 42, height: 42, borderRadius: 15 },
+  requestActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  acceptRequestButton: { backgroundColor: COLORS.blue, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 9 },
+  acceptRequestText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+  declineRequestButton: { backgroundColor: COLORS.surfaceRaised, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 9, borderWidth: 1, borderColor: COLORS.border },
+  declineRequestText: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
+
   followButton: { backgroundColor: COLORS.accentSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   followButtonText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   profileHandle: { color: '#A7C6FF', fontSize: 12, fontWeight: '700' },
