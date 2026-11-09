@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
+  Image,
   Platform,
   ScrollView,
   StyleSheet,
@@ -175,7 +176,12 @@ export function AuthScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.page}>
-          <View style={styles.brandMark}><Text style={styles.brandLetter}>C</Text></View>
+          <Image
+            source={require('../../../assets/brand/creova-icon-safe-area-preview.png')}
+            style={styles.brandMark}
+            resizeMode="contain"
+            accessibilityLabel="CREOVA app icon"
+          />
           <Text style={styles.brand}>CREOVA</Text>
           <Text style={styles.tagline}>CREATE. CONNECT. EVOLVE.</Text>
           <Text style={styles.title}>{awaitingOtp ? 'Verify your email' : mode === 'signin' ? 'Welcome back' : 'Create your account'}</Text>
@@ -292,8 +298,7 @@ const styles = StyleSheet.create({
   keyboardPage: { flex: 1, backgroundColor: '#090D18' },
   scrollContent: { flexGrow: 1 },
   page: { flexGrow: 1, backgroundColor: '#090D18', justifyContent: 'center', paddingHorizontal: 24, paddingVertical: 30, alignItems: 'center' },
-  brandMark: { width: 52, height: 52, borderRadius: 17, backgroundColor: '#172D55', borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
-  brandLetter: { color: '#A7C6FF', fontSize: 31, fontWeight: '900' },
+  brandMark: { width: 100, height: 100 },
   brand: { color: '#F5F7FF', fontSize: 20, fontWeight: '900', letterSpacing: 3, marginTop: 10 },
   tagline: { color: '#9AAAC4', fontSize: 9, letterSpacing: 1.6, marginTop: 4 },
   title: { color: '#F5F7FF', fontSize: 30, fontWeight: '900', marginTop: 28, textAlign: 'center' },
