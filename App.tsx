@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -322,6 +322,9 @@ function InboxScreen() {
 
 function ProfileScreen() {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
+  const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
+  const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
+  const [filter, setFilter] = useState<'ALL' | 'ANCHORS' | 'ITERATIONS'>('ALL');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -330,18 +333,23 @@ function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    getMyProfile().then(value => {
-      if (!active) return;
+  async function loadProfile() {
+    setError('');
+    try {
+      const [value, stats, feed] = await Promise.all([getMyProfile(), getMyProfileCounts(), getHomeFeed()]);
       setProfile(value);
       setDisplayName(value.display_name);
       setBio(value.bio);
       setIsPrivate(value.is_private);
-    }).catch(e => {
-      if (active) setError(e instanceof Error ? e.message : 'Could not load your profile.');
-    });
-    return () => { active = false; };
+      setCounts(stats);
+      setPosts(feed.filter(post => post.author_id === value.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load your profile.');
+    }
+  }
+
+  useEffect(() => {
+    loadProfile();
   }, []);
 
   async function saveProfile() {
@@ -352,11 +360,7 @@ function ProfileScreen() {
     setSaving(true);
     setNotice('');
     try {
-      const updated = await updateMyProfile({
-        display_name: displayName,
-        bio,
-        is_private: isPrivate,
-      });
+      const updated = await updateMyProfile({ display_name: displayName, bio, is_private: isPrivate });
       setProfile(updated);
       setEditing(false);
       setNotice('Your profile has been updated.');
@@ -371,17 +375,44 @@ function ProfileScreen() {
     await supabase?.auth.signOut();
   }
 
+  const visiblePosts = posts.filter(post => filter === 'ALL'
+    || (filter === 'ANCHORS' ? post.post_type === 'anchor' : post.post_type === 'iteration'));
+
   return <View style={styles.screenContent}>
-    <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
-    <Text style={styles.heading}>Profile</Text>
-    {profile ? <View style={styles.profileCard}>
-      <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
-      <Text style={styles.profileName}>{profile.display_name}</Text>
-      <Text style={styles.profileHandle}>@{profile.username}</Text>
-      <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
-      <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'PUBLIC ACCOUNT'}</Text>
+    <View style={styles.sectionHeading}>
+      <View>
+        <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
+        <Text style={styles.heading}>Profile</Text>
+      </View>
+      <TouchableOpacity onPress={loadProfile} style={styles.refreshButton}>
+        <Text style={styles.refreshText}>↻ Refresh</Text>
+      </TouchableOpacity>
+    </View>
+    {profile ? <>
+      <View style={styles.profileHero}>
+        <View style={styles.profileHeroTop}>
+          <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
+          <View style={styles.profileIdentity}>
+            <Text style={styles.profileName}>{profile.display_name}</Text>
+            <Text style={styles.profileHandle}>@{profile.username}</Text>
+            <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'CREATOR ACCOUNT'}</Text>
+          </View>
+        </View>
+        <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
+        <View style={styles.profileStats}>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.posts}</Text><Text style={styles.profileStatLabel}>POSTS</Text></View>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></View>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></View>
+        </View>
+        <View style={styles.profileActions}>
+          <TouchableOpacity onPress={() => { setNotice(''); setEditing(value => !value); }} style={styles.profilePrimaryAction}>
+            <Text style={styles.profilePrimaryActionText}>{editing ? 'Close editor' : 'Edit profile'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={signOut} style={styles.profileSecondaryAction}><Text style={styles.profileSecondaryActionText}>Sign out</Text></TouchableOpacity>
+        </View>
+      </View>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
-      {editing ? <View style={styles.profileEditor}>
+      {editing && <View style={styles.profileEditorCard}>
         <Text style={styles.editLabel}>DISPLAY NAME</Text>
         <TextInput value={displayName} onChangeText={setDisplayName} maxLength={60} style={styles.editInput} placeholder="Your display name" placeholderTextColor="#71819C" />
         <Text style={styles.editLabel}>BIO</Text>
@@ -396,19 +427,26 @@ function ProfileScreen() {
         <TouchableOpacity disabled={saving} onPress={saveProfile} style={styles.searchButton}>
           <Text style={styles.searchButtonText}>{saving ? 'Saving…' : 'Save changes'}</Text>
         </TouchableOpacity>
-        <TouchableOpacity onPress={() => {
-          setDisplayName(profile.display_name);
-          setBio(profile.bio);
-          setIsPrivate(profile.is_private);
-          setEditing(false);
-          setNotice('');
-        }} style={styles.signOutButton}><Text style={styles.signOutText}>Cancel</Text></TouchableOpacity>
-      </View> : <TouchableOpacity onPress={() => { setNotice(''); setEditing(true); }} style={styles.signOutButton}>
-        <Text style={styles.signOutText}>Edit profile</Text>
-      </TouchableOpacity>}
-      <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
-    </View> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and try again.' : 'Your account profile is being loaded from CREOVA.'} />}
-    <EmptyState title="Your evolution starts here" description="Your posts, Anchors, Iterations, skills, and proof of execution will come together on your profile." />
+      </View>}
+      <View style={styles.profileFeatureRow}>
+        <View style={styles.profileFeature}><Text style={styles.profileFeatureTitle}>EXECUTION</Text><Text style={styles.profileFeatureCopy}>Show the work behind the result.</Text></View>
+        <View style={styles.profileFeature}><Text style={styles.profileFeatureTitle}>EVOLUTION</Text><Text style={styles.profileFeatureCopy}>Make progress visible.</Text></View>
+      </View>
+      <View style={styles.profileContentHeading}>
+        <Text style={styles.subheading}>Your work</Text>
+        <Text style={styles.mutedSmall}>BUILT IN CREOVA</Text>
+      </View>
+      <View style={styles.profileFilterRow}>
+        {(['ALL', 'ANCHORS', 'ITERATIONS'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} style={[styles.profileFilter, filter === value && styles.profileFilterActive]}>
+          <Text style={[styles.profileFilterText, filter === value && styles.profileFilterTextActive]}>{value}</Text>
+        </TouchableOpacity>)}
+      </View>
+      {visiblePosts.length ? <View style={styles.profilePostGrid}>
+        {visiblePosts.map(post => <View key={post.id} style={styles.profilePostTile}>
+          {post.media[0] ? <Image source={{ uri: post.media[0].signedUrl }} style={styles.profilePostImage} resizeMode="cover" /> : <View style={styles.profilePostTextTile}><Text style={styles.profilePostType}>{post.post_type.toUpperCase()}</Text><Text numberOfLines={4} style={styles.profilePostCaption}>{post.caption || 'CREOVA creation'}</Text></View>}
+        </View>)}
+      </View> : <EmptyState title={filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description="Publish a post, Anchor or Iteration to build your visible creator journey." />}
+    </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
   </View>;
 }
 
@@ -546,6 +584,35 @@ const styles = StyleSheet.create({
   publishButton: { minHeight: 46, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   publishButtonDisabled: { opacity: 0.45 },
   publishButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  profileHero: { padding: 18, borderRadius: 21, borderWidth: 1, borderColor: '#35517D', backgroundColor: '#111F38', gap: 15 },
+  profileHeroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  profileIdentity: { flex: 1, gap: 5 },
+  profileStats: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#2B4165' },
+  profileStat: { alignItems: 'center', gap: 4 },
+  profileStatNumber: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
+  profileStatLabel: { color: COLORS.muted, fontSize: 8, letterSpacing: 1, fontWeight: '800' },
+  profileActions: { flexDirection: 'row', gap: 9 },
+  profilePrimaryAction: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center' },
+  profilePrimaryActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  profileSecondaryAction: { minHeight: 42, borderRadius: 11, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
+  profileSecondaryActionText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
+  profileEditorCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 16, gap: 10 },
+  profileFeatureRow: { flexDirection: 'row', gap: 9 },
+  profileFeature: { flex: 1, padding: 13, borderRadius: 14, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border, gap: 6 },
+  profileFeatureTitle: { color: '#A7C6FF', fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
+  profileFeatureCopy: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
+  profileContentHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  profileFilterRow: { flexDirection: 'row', gap: 8 },
+  profileFilter: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
+  profileFilterActive: { borderColor: COLORS.blue, backgroundColor: COLORS.accentSoft },
+  profileFilterText: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
+  profileFilterTextActive: { color: '#A7C6FF' },
+  profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  profilePostTile: { width: '31.5%', aspectRatio: 0.82, borderRadius: 11, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  profilePostImage: { width: '100%', height: '100%' },
+  profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
+  profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
+  profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
