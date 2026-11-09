@@ -391,7 +391,7 @@ function ProfileScreen() {
     {profile ? <>
       <View style={styles.profileHero}>
         <View style={styles.profileHeroTop}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
+          {profile.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} resizeMode="cover" /> : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>}
           <View style={styles.profileIdentity}>
             <Text style={styles.profileName}>{profile.display_name}</Text>
             <Text style={styles.profileHandle}>@{profile.username}</Text>
@@ -615,6 +615,7 @@ const styles = StyleSheet.create({
   profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: 76, height: 76, borderRadius: 28, borderWidth: 1, borderColor: '#4268A4', backgroundColor: COLORS.accentSoft },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
   profileName: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
   profileCopy: { color: COLORS.muted, fontSize: 12, lineHeight: 19, textAlign: 'center', maxWidth: 370 },
