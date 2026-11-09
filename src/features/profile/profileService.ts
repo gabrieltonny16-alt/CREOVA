@@ -113,11 +113,44 @@ export async function unfollowProfile(targetUserId: string): Promise<void> {
   if (error) throw error;
 }
 
+export type IncomingFollowRequest = {
+  follower_id: string;
+  created_at: string;
+  follower: Pick<CreovaProfile, 'id' | 'username' | 'display_name' | 'avatar_url'>;
+};
+
+export async function getIncomingFollowRequests(): Promise<IncomingFollowRequest[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  const { data, error } = await client.from('user_follows')
+    .select('follower_id, created_at, follower:profiles!user_follows_follower_id_fkey(id, username, display_name, avatar_url)')
+    .eq('following_id', auth.user.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    follower_id: row.follower_id,
+    created_at: row.created_at,
+    follower: row.follower,
+  })) as IncomingFollowRequest[];
+}
+
 export async function respondToFollowRequest(followerId: string, accept: boolean): Promise<void> {
   const client = requireSupabase();
-  const { error } = await client.from('user_follows').update({ status: accept ? 'accepted' : 'rejected' })
-    .eq('follower_id', followerId).eq('status', 'pending');
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+  const { data, error } = await client.from('user_follows').update({ status: accept ? 'accepted' : 'rejected' })
+    .eq('follower_id', followerId)
+    .eq('following_id', auth.user.id)
+    .eq('status', 'pending')
+    .select('follower_id')
+    .maybeSingle();
   if (error) throw error;
+  if (!data) throw new Error('This follow request is no longer available.');
 }
 
 
