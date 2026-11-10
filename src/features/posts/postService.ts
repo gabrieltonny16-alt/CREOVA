@@ -233,3 +233,57 @@ export async function togglePostLike(postId: string): Promise<boolean> {
   if (error) throw error;
   return true;
 }
+
+
+export type CreovaPostComment = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  parent_comment_id: string | null;
+  body: string;
+  created_at: string;
+  author: {
+    username: string;
+    display_name: string;
+    avatar_url: string | null;
+  } | null;
+};
+
+export async function getPostComments(postId: string): Promise<CreovaPostComment[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view comments.');
+
+  const { data, error } = await client
+    .from('post_comments')
+    .select('id, post_id, user_id, parent_comment_id, body, created_at, author:profiles!post_comments_user_id_fkey(username, display_name, avatar_url)')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+    .limit(200);
+  if (error) throw error;
+  return (data ?? []) as unknown as CreovaPostComment[];
+}
+
+export async function createPostComment(input: {
+  postId: string;
+  body: string;
+  parentCommentId?: string | null;
+}): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to comment.');
+
+  const body = input.body.trim();
+  if (!body) throw new Error('Write a comment first.');
+  if (body.length > 2000) throw new Error('Comments must be 2,000 characters or fewer.');
+
+  const { error } = await client.from('post_comments').insert({
+    post_id: input.postId,
+    user_id: auth.user.id,
+    parent_comment_id: input.parentCommentId ?? null,
+    body,
+  });
+  if (error) throw error;
+}
