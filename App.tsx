@@ -865,7 +865,7 @@ function MainApp() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.app}>
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
