@@ -356,13 +356,28 @@ export async function setCommentReaction(
     return;
   }
 
-  const { error } = await client
+  const { data: existing, error: lookupError } = await client
     .from('comment_reactions')
-    .upsert({
-      comment_id: commentId,
-      user_id: auth.user.id,
-      reaction_type: reactionType,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'comment_id,user_id' });
+    .select('id')
+    .eq('comment_id', commentId)
+    .eq('user_id', auth.user.id)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (existing) {
+    const { error } = await client
+      .from('comment_reactions')
+      .update({ reaction_type: reactionType, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+      .eq('user_id', auth.user.id);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await client.from('comment_reactions').insert({
+    comment_id: commentId,
+    user_id: auth.user.id,
+    reaction_type: reactionType,
+  });
   if (error) throw error;
 }
