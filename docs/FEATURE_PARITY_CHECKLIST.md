@@ -71,9 +71,9 @@ Do not mark a feature complete based only on a visible screen or button. Complet
 | Likes / unlike | [~] | Like service and feed action exist; concurrency and duplicate-action tests needed. |
 | Comments and threaded replies | [~] | Comment list, posting and reply threading are implemented in the Home feed; Android/Web runtime and authorization tests remain. |
 | Comment likes / reactions | [~] | Six reaction types, one reaction per user/comment, Supabase storage/RLS and feed comment controls added; Android/Web runtime, duplicate-action, visibility and automated tests remain. |
-| Reposts / reshares | [ ] | Not established. |
-| Share to user, chat or external app | [ ] | Not established. |
-| Save/bookmark posts | [ ] | Not established. |
+| Reposts / reshares | [~] | Repost storage, ownership policies, feed inclusion and repost controls added; Android/Web behavior, duplicate/concurrency and privacy tests remain. |
+| Share to user, chat or external app | [~] | Native external share sheet and `creova://post/{id}` link handling added; in-app chat sharing awaits messaging, and platform/deep-link tests remain. |
+| Save/bookmark posts | [~] | Private per-user save storage, save/unsave controls and a private Saved posts profile view added; Android/Web and authorization tests remain. |
 | Collections/folders for saved posts | [ ] | Not established. |
 | Pin posts | [ ] | Not established. |
 | Collaborative posts / co-authors | [ ] | Not established. |
