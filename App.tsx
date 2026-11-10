@@ -627,6 +627,9 @@ function ProfileScreen() {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
+  const [savedPosts, setSavedPosts] = useState<CreovaFeedPost[]>([]);
+  const [showSavedPosts, setShowSavedPosts] = useState(false);
+  const [savedLoading, setSavedLoading] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'ANCHORS' | 'ITERATIONS'>('ALL');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
@@ -655,6 +658,19 @@ function ProfileScreen() {
   useEffect(() => {
     loadProfile();
   }, []);
+
+  async function loadSavedPosts() {
+    setSavedLoading(true);
+    setNotice('');
+    try {
+      setSavedPosts(await getSavedPosts());
+      setShowSavedPosts(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not load saved posts.');
+    } finally {
+      setSavedLoading(false);
+    }
+  }
 
   async function chooseAvatar() {
     setNotice('');
@@ -729,7 +745,7 @@ function ProfileScreen() {
     await supabase?.auth.signOut();
   }
 
-  const visiblePosts = posts.filter(post => filter === 'ALL'
+  const visiblePosts = showSavedPosts ? savedPosts : posts.filter(post => filter === 'ALL'
     || (filter === 'ANCHORS' ? post.post_type === 'anchor' : post.post_type === 'iteration'));
 
   return <View style={styles.screenContent}>
@@ -795,28 +811,44 @@ function ProfileScreen() {
         <View style={styles.profileFeature}><Text style={styles.profileFeatureTitle}>EVOLUTION</Text><Text style={styles.profileFeatureCopy}>Make progress visible.</Text></View>
       </View>
       <View style={styles.profileContentHeading}>
-        <Text style={styles.subheading}>Your work</Text>
-        <Text style={styles.mutedSmall}>BUILT IN CREOVA</Text>
+        <Text style={styles.subheading}>{showSavedPosts ? 'Saved posts' : 'Your work'}</Text>
+        <TouchableOpacity onPress={() => showSavedPosts ? setShowSavedPosts(false) : loadSavedPosts()} disabled={savedLoading} style={styles.refreshButton}>
+          <Text style={styles.refreshText}>{savedLoading ? 'Loading…' : showSavedPosts ? 'My work' : '▣ Saved posts'}</Text>
+        </TouchableOpacity>
       </View>
-      <View style={styles.profileFilterRow}>
+      {!showSavedPosts && <View style={styles.profileFilterRow}>
         {(['ALL', 'ANCHORS', 'ITERATIONS'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} style={[styles.profileFilter, filter === value && styles.profileFilterActive]}>
           <Text style={[styles.profileFilterText, filter === value && styles.profileFilterTextActive]}>{value}</Text>
         </TouchableOpacity>)}
-      </View>
+      </View>}
+      {savedLoading && showSavedPosts && <EmptyState title="Loading saved posts" description="Fetching the posts you bookmarked privately." />}
       {visiblePosts.length ? <View style={styles.profilePostGrid}>
         {visiblePosts.map(post => <View key={post.id} style={styles.profilePostTile}>
           {post.media[0] ? <Image source={{ uri: post.media[0].signedUrl }} style={styles.profilePostImage} resizeMode="cover" /> : <View style={styles.profilePostTextTile}><Text style={styles.profilePostType}>{post.post_type.toUpperCase()}</Text><Text numberOfLines={4} style={styles.profilePostCaption}>{post.caption || 'CREOVA creation'}</Text></View>}
         </View>)}
-      </View> : <EmptyState title={filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description="Publish a post, Anchor or Iteration to build your visible creator journey." />}
+      </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
   </View>;
 }
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [sharedPostId, setSharedPostId] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isWide = width >= 760;
+
+  useEffect(() => {
+    const handleUrl = (url: string) => {
+      const match = url.match(/^creova:\/\/post\/([0-9a-f-]{36})$/i);
+      if (!match) return;
+      setSharedPostId(match[1]);
+      setActiveTab('Home');
+    };
+    Linking.getInitialURL().then(url => { if (url) handleUrl(url); }).catch(() => undefined);
+    const subscription = Linking.addEventListener('url', event => handleUrl(event.url));
+    return () => subscription.remove();
+  }, []);
 
   const renderScreen = () => {
     switch (activeTab) {
@@ -824,7 +856,7 @@ function MainApp() {
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen />;
       case 'Profile': return <ProfileScreen />;
-      default: return <HomeScreen />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} />;
     }
   };
 
