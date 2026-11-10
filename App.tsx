@@ -158,15 +158,19 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   useEffect(() => {
     if (!sharedPostId) return;
     let active = true;
-    getPostById(sharedPostId).then(sharedPost => {
-      if (!active) return;
-      setPosts(items => [sharedPost, ...items.filter(item => item.id !== sharedPost.id)]);
-      setMessage('Opened a post shared with you.');
-      onSharedPostHandled();
-    }).catch(error => {
-      if (active) setMessage(error instanceof Error ? error.message : 'Could not open this shared post.');
-      if (active) onSharedPostHandled();
-    });
+    (async () => {
+      try {
+        await loadFeed();
+        const sharedPost = await getPostById(sharedPostId);
+        if (!active) return;
+        setPosts(items => [sharedPost, ...items.filter(item => item.id !== sharedPost.id)]);
+        setMessage('Opened a post shared with you.');
+      } catch (error) {
+        if (active) setMessage(error instanceof Error ? error.message : 'Could not open this shared post.');
+      } finally {
+        if (active) onSharedPostHandled();
+      }
+    })();
     return () => { active = false; };
   }, [sharedPostId]);
 
