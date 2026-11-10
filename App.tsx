@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImages, getHomeFeed, togglePostLike, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,6 +19,8 @@ import {
   useWindowDimensions,
   Switch,
   Modal,
+  Share,
+  Linking,
 } from 'react-native';
 
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -65,11 +67,12 @@ function EmptyState({ title, description }: { title: string; description: string
   );
 }
 
-function HomeScreen() {
+function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: string | null; onSharedPostHandled: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyPost, setBusyPost] = useState('');
+  const [postActionBusy, setPostActionBusy] = useState('');
   const [commentPost, setCommentPost] = useState<CreovaFeedPost | null>(null);
   const [comments, setComments] = useState<CreovaPostComment[]>([]);
   const [reactionSummaries, setReactionSummaries] = useState<Record<string, CommentReactionSummary>>({});
@@ -152,6 +155,21 @@ function HomeScreen() {
     loadFeed();
   }, []);
 
+  useEffect(() => {
+    if (!sharedPostId) return;
+    let active = true;
+    getPostById(sharedPostId).then(sharedPost => {
+      if (!active) return;
+      setPosts(items => [sharedPost, ...items.filter(item => item.id !== sharedPost.id)]);
+      setMessage('Opened a post shared with you.');
+      onSharedPostHandled();
+    }).catch(error => {
+      if (active) setMessage(error instanceof Error ? error.message : 'Could not open this shared post.');
+      if (active) onSharedPostHandled();
+    });
+    return () => { active = false; };
+  }, [sharedPostId]);
+
   async function likePost(postId: string) {
     setBusyPost(postId);
     try {
@@ -163,6 +181,50 @@ function HomeScreen() {
       setMessage(error instanceof Error ? error.message : 'Could not update your like.');
     } finally {
       setBusyPost('');
+    }
+  }
+
+  async function repostPost(post: CreovaFeedPost) {
+    if (postActionBusy) return;
+    setPostActionBusy(post.id);
+    try {
+      await togglePostRepost(post.id);
+      await loadFeed();
+      setMessage(post.repostedByMe ? 'Repost removed.' : 'Post reposted to your feed.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update your repost.');
+    } finally {
+      setPostActionBusy('');
+    }
+  }
+
+  async function savePost(post: CreovaFeedPost) {
+    if (postActionBusy) return;
+    setPostActionBusy(post.id);
+    try {
+      const saved = await togglePostSave(post.id);
+      setPosts(items => items.map(item => item.id === post.id ? { ...item, savedByMe: saved } : item));
+      setMessage(saved ? 'Post saved privately.' : 'Post removed from your saved posts.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update saved posts.');
+    } finally {
+      setPostActionBusy('');
+    }
+  }
+
+  async function sharePost(post: CreovaFeedPost) {
+    if (postActionBusy) return;
+    setPostActionBusy(post.id);
+    try {
+      const link = `creova://post/${post.id}`;
+      const author = post.author?.display_name || 'A CREOVA creator';
+      const handle = post.author?.username ? ` (@${post.author.username})` : '';
+      const messageText = `${author}${handle} on CREOVA\\n\\n${post.caption || 'Check out this post.'}\\n\\nOpen in CREOVA: ${link}`;
+      await Share.share({ message: messageText, url: link, title: 'Share CREOVA post' });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open sharing options.');
+    } finally {
+      setPostActionBusy('');
     }
   }
 
@@ -199,6 +261,7 @@ function HomeScreen() {
       {!loading && posts.length === 0 && <EmptyState title="Your feed starts here" description="Follow people or publish your first post. Their updates will appear here." />}
       {posts.map(post => (
         <View key={post.id} style={styles.postCard}>
+          {!!post.repostedBy && <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700', marginBottom: 9 }}>↻ {post.repostedBy.display_name || post.repostedBy.username} reposted</Text>}
           <View style={styles.postHeader}>
             <View style={styles.resultAvatar}>
               <Text style={styles.resultAvatarText}>{(post.author?.display_name || post.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>
@@ -210,12 +273,21 @@ function HomeScreen() {
           </View>
           {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={styles.feedImage} resizeMode="cover" />)}
           {!!post.caption && <Text style={styles.postCaption}>{post.caption}</Text>}
-          <View style={styles.postActions}>
-            <TouchableOpacity disabled={busyPost === post.id} onPress={() => likePost(post.id)} style={styles.postAction}>
+          <View style={[styles.postActions, { flexWrap: 'wrap', rowGap: 9 }]}>
+            <TouchableOpacity disabled={busyPost === post.id || !!postActionBusy} onPress={() => likePost(post.id)} style={styles.postAction}>
               <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => openComments(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={`View ${post.commentCount} comments`}>
               <Text style={styles.postActionText}>▢ {post.commentCount} Comments</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={!!postActionBusy} onPress={() => repostPost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={post.repostedByMe ? 'Remove repost' : 'Repost this post'}>
+              <Text style={[styles.postActionText, post.repostedByMe && styles.postLiked]}>↻ {post.repostCount}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={!!postActionBusy} onPress={() => sharePost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel="Share this post">
+              <Text style={styles.postActionText}>↗ Share</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={!!postActionBusy} onPress={() => savePost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={post.savedByMe ? 'Remove from saved posts' : 'Save this post'}>
+              <Text style={[styles.postActionText, post.savedByMe && styles.postLiked]}>{post.savedByMe ? '▣ Saved' : '▢ Save'}</Text>
             </TouchableOpacity>
           </View>
         </View>
