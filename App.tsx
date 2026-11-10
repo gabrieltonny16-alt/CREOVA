@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -208,7 +208,7 @@ function CreateScreen() {
   const [caption, setCaption] = useState('');
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
-  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [selectedImages, setSelectedImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -217,24 +217,27 @@ function CreateScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
         quality: 0.85,
       });
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        if (asset.type && asset.type !== 'image') {
-          setNotice('Choose an image file, not a video.');
-          return;
+      if (!result.canceled && result.assets.length) {
+        const assets = result.assets.slice(0, 10);
+        for (const asset of assets) {
+          if (asset.type && asset.type !== 'image') {
+            setNotice('Choose image files only.');
+            return;
+          }
+          if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
+            setNotice('Each photo must be smaller than 10 MB.');
+            return;
+          }
+          if (asset.mimeType && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
+            setNotice('Use JPEG, PNG, or WebP photos.');
+            return;
+          }
         }
-        if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
-          setNotice('Choose an image smaller than 10 MB.');
-          return;
-        }
-        if (asset.mimeType && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
-          setNotice('Use a JPEG, PNG, or WebP image.');
-          return;
-        }
-        setSelectedImage(asset);
+        setSelectedImages(assets);
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not open your photo library.');
@@ -242,31 +245,31 @@ function CreateScreen() {
   }
 
   async function publish() {
-    if (!caption.trim() && !selectedImage) {
+    if (!caption.trim() && selectedImages.length === 0) {
       setNotice('Write a caption or choose an image first.');
       return;
     }
     setPublishing(true);
     setNotice('');
     try {
-      if (selectedImage) {
-        await createPostWithImage({
+      if (selectedImages.length) {
+        await createPostWithImages({
           caption,
           postType,
           visibility,
-          image: {
-            uri: selectedImage.uri,
-            mimeType: selectedImage.mimeType ?? 'image/jpeg',
-            fileSize: selectedImage.fileSize ?? null,
-            width: selectedImage.width,
-            height: selectedImage.height,
-          },
+          images: selectedImages.map(asset => ({
+            uri: asset.uri,
+            mimeType: asset.mimeType ?? 'image/jpeg',
+            fileSize: asset.fileSize ?? null,
+            width: asset.width,
+            height: asset.height,
+          })),
         });
       } else {
         await createPost({ caption, postType, visibility });
       }
       setCaption('');
-      setSelectedImage(null);
+      setSelectedImages([]);
       setNotice('Published. Your post is now in your CREOVA feed.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
@@ -280,7 +283,7 @@ function CreateScreen() {
     <Text style={styles.heading}>Create</Text>
     <View style={styles.composerCard}>
       <Text style={styles.composerTitle}>Share an update</Text>
-      <Text style={styles.composerHint}>Share your words and photos with your CREOVA community.</Text>
+      <Text style={styles.composerHint}>Share your words or up to 10 photos with your CREOVA community.</Text>
       <TextInput
         value={caption}
         onChangeText={setCaption}
@@ -293,14 +296,22 @@ function CreateScreen() {
       />
       <Text style={styles.composerCount}>{caption.length}/2200</Text>
       <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
-        <Text style={styles.imagePickButtonText}>{selectedImage ? 'Change selected image' : '＋ Add a photo'}</Text>
+        <Text style={styles.imagePickButtonText}>{selectedImages.length ? '＋ Add or replace photos' : '＋ Add photos (up to 10)'}</Text>
       </TouchableOpacity>
-      {selectedImage && <View style={styles.imagePreviewWrap}>
-        <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
-        <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageButton}>
-          <Text style={styles.removeImageText}>Remove image</Text>
-        </TouchableOpacity>
-      </View>}
+      {selectedImages.length > 0 && <Text style={styles.composerCount}>{selectedImages.length}/10 photos selected · Drag order follows your selection</Text>}
+      {selectedImages.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 8 }}>
+        {selectedImages.map((asset, index) => <View key={asset.assetId ?? asset.uri} style={{ width: 132, gap: 6 }}>
+          <View style={{ position: 'relative' }}>
+            <Image source={{ uri: asset.uri }} style={{ width: 132, height: 132, borderRadius: 12 }} resizeMode="cover" />
+            <View style={{ position: 'absolute', left: 7, top: 7, backgroundColor: '#090D18CC', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>{index + 1}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={() => setSelectedImages(items => items.filter((_, itemIndex) => itemIndex !== index))} style={styles.removeImageButton}>
+            <Text style={styles.removeImageText}>Remove</Text>
+          </TouchableOpacity>
+        </View>)}
+      </ScrollView>}
       <Text style={styles.editLabel}>POST FORMAT</Text>
       <View style={styles.postTypeRow}>
         {(['post', 'anchor', 'iteration'] as const).map(type => (
@@ -317,7 +328,7 @@ function CreateScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedImage)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedImage)) && styles.publishButtonDisabled]}>
+      <TouchableOpacity disabled={publishing || (!caption.trim() && selectedImages.length === 0)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && selectedImages.length === 0)) && styles.publishButtonDisabled]}>
         <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
       </TouchableOpacity>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
