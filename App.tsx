@@ -26,7 +26,7 @@ import {
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
 
 const COLORS = {
-  background: '#090D18',
+  background: '#0B0D10',
   surface: '#111A2B',
   surfaceRaised: '#17243A',
   border: '#263650',
