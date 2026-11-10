@@ -3,8 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImages, getHomeFeed, togglePostLike, getPostComments, createPostComment } from './src/features/posts/postService';
-import type { CreovaFeedPost, CreovaPostComment } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, togglePostLike, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
+import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -72,6 +72,8 @@ function HomeScreen() {
   const [busyPost, setBusyPost] = useState('');
   const [commentPost, setCommentPost] = useState<CreovaFeedPost | null>(null);
   const [comments, setComments] = useState<CreovaPostComment[]>([]);
+  const [reactionSummaries, setReactionSummaries] = useState<Record<string, CommentReactionSummary>>({});
+  const [reactionBusyId, setReactionBusyId] = useState('');
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentDraft, setCommentDraft] = useState('');
   const [replyTo, setReplyTo] = useState<CreovaPostComment | null>(null);
@@ -86,11 +88,28 @@ function HomeScreen() {
     setCommentMessage('');
     setCommentsLoading(true);
     try {
-      setComments(await getPostComments(post.id));
+      const loadedComments = await getPostComments(post.id);
+      setComments(loadedComments);
+      setReactionSummaries(await getCommentReactionSummaries(loadedComments.map(comment => comment.id)));
     } catch (error) {
       setCommentMessage(error instanceof Error ? error.message : 'Could not load comments.');
     } finally {
       setCommentsLoading(false);
+    }
+  }
+
+  async function handleCommentReaction(commentId: string, reaction: CommentReactionType) {
+    if (reactionBusyId) return;
+    setReactionBusyId(commentId);
+    setCommentMessage('');
+    try {
+      const current = reactionSummaries[commentId]?.myReaction ?? null;
+      await setCommentReaction(commentId, current === reaction ? null : reaction);
+      setReactionSummaries(await getCommentReactionSummaries(comments.map(comment => comment.id)));
+    } catch (error) {
+      setCommentMessage(error instanceof Error ? error.message : 'Could not update your reaction.');
+    } finally {
+      setReactionBusyId('');
     }
   }
 
@@ -228,6 +247,26 @@ function HomeScreen() {
                     </View>
                   </View>
                   <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 20, paddingLeft: 50 }}>{comment.body}</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginLeft: 50, marginTop: 3 }}>
+                    {(['like', 'love', 'laugh', 'wow', 'sad', 'angry'] as const).map(reaction => {
+                      const summary = reactionSummaries[comment.id];
+                      const emoji: Record<CommentReactionType, string> = { like: '👍', love: '❤️', laugh: '😂', wow: '😮', sad: '😢', angry: '😡' };
+                      const selected = summary?.myReaction === reaction;
+                      const count = summary?.counts[reaction] ?? 0;
+                      return (
+                        <TouchableOpacity
+                          key={reaction}
+                          disabled={reactionBusyId === comment.id}
+                          onPress={() => handleCommentReaction(comment.id, reaction)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${reaction} reaction, ${count} total`}
+                          style={{ flexDirection: 'row', alignItems: 'center', gap: 3, borderRadius: 14, borderWidth: 1, borderColor: selected ? COLORS.blue : COLORS.border, backgroundColor: selected ? COLORS.accentSoft : COLORS.surface, paddingHorizontal: 7, paddingVertical: 4, opacity: reactionBusyId === comment.id ? 0.55 : 1 }}>
+                          <Text style={{ fontSize: 12 }}>{emoji[reaction]}</Text>
+                          {count > 0 && <Text style={{ color: selected ? '#A7C6FF' : COLORS.muted, fontSize: 10 }}>{count}</Text>}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                   <TouchableOpacity onPress={() => setReplyTo(comment)} style={{ alignSelf: 'flex-start', marginLeft: 50, paddingVertical: 3 }}>
                     <Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>Reply</Text>
                   </TouchableOpacity>
