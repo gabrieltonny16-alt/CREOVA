@@ -287,3 +287,82 @@ export async function createPostComment(input: {
   });
   if (error) throw error;
 }
+
+
+export type CommentReactionType = 'like' | 'love' | 'laugh' | 'wow' | 'sad' | 'angry';
+
+export type CommentReactionSummary = {
+  comment_id: string;
+  counts: Record<CommentReactionType, number>;
+  total: number;
+  myReaction: CommentReactionType | null;
+};
+
+const COMMENT_REACTIONS: CommentReactionType[] = ['like', 'love', 'laugh', 'wow', 'sad', 'angry'];
+
+export async function getCommentReactionSummaries(commentIds: string[]): Promise<Record<string, CommentReactionSummary>> {
+  const summaries: Record<string, CommentReactionSummary> = {};
+  for (const commentId of commentIds) {
+    summaries[commentId] = {
+      comment_id: commentId,
+      counts: { like: 0, love: 0, laugh: 0, wow: 0, sad: 0, angry: 0 },
+      total: 0,
+      myReaction: null,
+    };
+  }
+  if (!commentIds.length) return summaries;
+
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view comment reactions.');
+
+  const { data, error } = await client
+    .from('comment_reactions')
+    .select('comment_id, user_id, reaction_type')
+    .in('comment_id', commentIds);
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    const summary = summaries[row.comment_id];
+    if (!summary || !COMMENT_REACTIONS.includes(row.reaction_type as CommentReactionType)) continue;
+    const reaction = row.reaction_type as CommentReactionType;
+    summary.counts[reaction] += 1;
+    summary.total += 1;
+    if (row.user_id === auth.user.id) summary.myReaction = reaction;
+  }
+  return summaries;
+}
+
+export async function setCommentReaction(
+  commentId: string,
+  reactionType: CommentReactionType | null,
+): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to react to comments.');
+  if (reactionType !== null && !COMMENT_REACTIONS.includes(reactionType)) {
+    throw new Error('Choose a supported reaction.');
+  }
+
+  if (reactionType === null) {
+    const { error } = await client
+      .from('comment_reactions')
+      .delete()
+      .eq('comment_id', commentId)
+      .eq('user_id', auth.user.id);
+    if (error) throw error;
+    return;
+  }
+
+  const { error } = await client
+    .from('comment_reactions')
+    .upsert({
+      comment_id: commentId,
+      user_id: auth.user.id,
+      reaction_type: reactionType,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'comment_id,user_id' });
+  if (error) throw error;
+}
