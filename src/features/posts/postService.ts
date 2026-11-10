@@ -28,6 +28,11 @@ export type CreovaFeedPost = {
   likeCount: number;
   commentCount: number;
   likedByMe: boolean;
+  repostCount: number;
+  repostedByMe: boolean;
+  savedByMe: boolean;
+  repostedBy: { id: string; username: string; display_name: string } | null;
+  feedCreatedAt: string;
 };
 
 type RawFeedPost = {
@@ -154,29 +159,9 @@ export async function createPostWithImage(input: {
   return createPostWithImages({ ...input, images: [input.image] });
 }
 
-export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
+async function hydrateFeedPosts(rawPosts: RawFeedPost[], userId: string): Promise<CreovaFeedPost[]> {
+  if (!rawPosts.length) return [];
   const client = requireSupabase();
-  const { data: auth, error: authError } = await client.auth.getUser();
-  if (authError) throw authError;
-  if (!auth.user) throw new Error('Sign in to view your feed.');
-
-  const { data: follows, error: followsError } = await client
-    .from('user_follows')
-    .select('following_id')
-    .eq('follower_id', auth.user.id)
-    .eq('status', 'accepted');
-  if (followsError) throw followsError;
-
-  const authorIds = [auth.user.id, ...(follows ?? []).map(row => row.following_id)];
-  const { data, error } = await client
-    .from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)')
-    .in('author_id', authorIds)
-    .order('created_at', { ascending: false })
-    .limit(30);
-  if (error) throw error;
-
-  const rawPosts = (data ?? []) as unknown as RawFeedPost[];
   const paths = rawPosts.flatMap(post => post.media?.map(media => media.object_path) ?? []);
   const signedByPath = new Map<string, string>();
   if (paths.length) {
@@ -201,8 +186,178 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
     }).sort((a, b) => a.position - b.position),
     likeCount: post.likes?.length ?? 0,
     commentCount: post.comments?.length ?? 0,
-    likedByMe: post.likes?.some(like => like.user_id === auth.user.id) ?? false,
+    likedByMe: post.likes?.some(like => like.user_id === userId) ?? false,
+    repostCount: 0,
+    repostedByMe: false,
+    savedByMe: false,
+    repostedBy: null,
+    feedCreatedAt: post.created_at,
   }));
+}
+
+type FeedRepostRow = {
+  post_id: string;
+  user_id: string;
+  created_at: string;
+  reposter: { id: string; username: string; display_name: string } | null;
+};
+
+const FEED_POST_SELECT = 'id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
+
+export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view your feed.');
+
+  const { data: follows, error: followsError } = await client
+    .from('user_follows')
+    .select('following_id')
+    .eq('follower_id', auth.user.id)
+    .eq('status', 'accepted');
+  if (followsError) throw followsError;
+
+  const authorIds = [auth.user.id, ...(follows ?? []).map(row => row.following_id)];
+  const [directResult, repostResult, savedResult] = await Promise.all([
+    client.from('posts').select(FEED_POST_SELECT).in('author_id', authorIds)
+      .order('created_at', { ascending: false }).limit(30),
+    client.from('post_reposts')
+      .select('post_id, user_id, created_at, reposter:profiles!post_reposts_user_id_fkey(id, username, display_name)')
+      .in('user_id', authorIds).order('created_at', { ascending: false }).limit(60),
+    client.from('post_saves').select('post_id').eq('user_id', auth.user.id),
+  ]);
+  if (directResult.error) throw directResult.error;
+  if (repostResult.error) throw repostResult.error;
+  if (savedResult.error) throw savedResult.error;
+
+  const repostRows = (repostResult.data ?? []) as unknown as FeedRepostRow[];
+  const repostPostIds = [...new Set(repostRows.map(row => row.post_id))];
+  let repostedRaw: RawFeedPost[] = [];
+  if (repostPostIds.length) {
+    const { data, error } = await client.from('posts').select(FEED_POST_SELECT).in('id', repostPostIds);
+    if (error) throw error;
+    repostedRaw = (data ?? []) as unknown as RawFeedPost[];
+  }
+
+  const rawById = new Map<string, RawFeedPost>();
+  for (const post of (directResult.data ?? []) as unknown as RawFeedPost[]) rawById.set(post.id, post);
+  for (const post of repostedRaw) rawById.set(post.id, post);
+  const hydrated = await hydrateFeedPosts([...rawById.values()], auth.user.id);
+  const repostsByPost = new Map<string, FeedRepostRow[]>();
+  for (const row of repostRows) {
+    const current = repostsByPost.get(row.post_id) ?? [];
+    current.push(row);
+    repostsByPost.set(row.post_id, current);
+  }
+  const savedIds = new Set((savedResult.data ?? []).map(row => row.post_id));
+
+  return hydrated.map(post => {
+    const reposts = repostsByPost.get(post.id) ?? [];
+    const latest = reposts[0];
+    return {
+      ...post,
+      repostCount: reposts.length,
+      repostedByMe: reposts.some(row => row.user_id === auth.user.id),
+      savedByMe: savedIds.has(post.id),
+      repostedBy: latest?.reposter ? { id: latest.user_id, ...latest.reposter } : null,
+      feedCreatedAt: latest?.created_at ?? post.created_at,
+    };
+  }).sort((a, b) => new Date(b.feedCreatedAt).getTime() - new Date(a.feedCreatedAt).getTime());
+}
+
+export async function getPostById(postId: string): Promise<CreovaFeedPost> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view this post.');
+
+  const { data, error } = await client.from('posts').select(FEED_POST_SELECT)
+    .eq('id', postId).maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('This post is unavailable or you do not have permission to view it.');
+
+  const [repostsResult, savedResult] = await Promise.all([
+    client.from('post_reposts')
+      .select('post_id, user_id, created_at, reposter:profiles!post_reposts_user_id_fkey(id, username, display_name)')
+      .eq('post_id', postId).order('created_at', { ascending: false }),
+    client.from('post_saves').select('post_id').eq('user_id', auth.user.id).eq('post_id', postId).maybeSingle(),
+  ]);
+  if (repostsResult.error) throw repostsResult.error;
+  if (savedResult.error) throw savedResult.error;
+  const rows = (repostsResult.data ?? []) as unknown as FeedRepostRow[];
+  const [post] = await hydrateFeedPosts([data as unknown as RawFeedPost], auth.user.id);
+  const latest = rows[0];
+  return {
+    ...post,
+    repostCount: rows.length,
+    repostedByMe: rows.some(row => row.user_id === auth.user.id),
+    savedByMe: !!savedResult.data,
+    repostedBy: latest?.reposter ? { id: latest.user_id, ...latest.reposter } : null,
+    feedCreatedAt: latest?.created_at ?? post.created_at,
+  };
+}
+
+export async function getSavedPosts(): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view saved posts.');
+
+  const { data: saved, error: savedError } = await client.from('post_saves')
+    .select('post_id, created_at').eq('user_id', auth.user.id)
+    .order('created_at', { ascending: false });
+  if (savedError) throw savedError;
+  if (!saved?.length) return [];
+
+  const ids = saved.map(row => row.post_id);
+  const { data, error } = await client.from('posts').select(FEED_POST_SELECT).in('id', ids);
+  if (error) throw error;
+  const hydrated = await hydrateFeedPosts((data ?? []) as unknown as RawFeedPost[], auth.user.id);
+  const byId = new Map(hydrated.map(post => [post.id, post]));
+  return ids.flatMap(id => {
+    const post = byId.get(id);
+    return post ? [{ ...post, savedByMe: true }] : [];
+  });
+}
+
+export async function togglePostRepost(postId: string): Promise<boolean> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to repost.');
+
+  const { data: existing, error: lookupError } = await client.from('post_reposts')
+    .select('post_id').eq('post_id', postId).eq('user_id', auth.user.id).maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing) {
+    const { error } = await client.from('post_reposts').delete()
+      .eq('post_id', postId).eq('user_id', auth.user.id);
+    if (error) throw error;
+    return false;
+  }
+  const { error } = await client.from('post_reposts').insert({ post_id: postId, user_id: auth.user.id });
+  if (error) throw error;
+  return true;
+}
+
+export async function togglePostSave(postId: string): Promise<boolean> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to save posts.');
+
+  const { data: existing, error: lookupError } = await client.from('post_saves')
+    .select('post_id').eq('post_id', postId).eq('user_id', auth.user.id).maybeSingle();
+  if (lookupError) throw lookupError;
+  if (existing) {
+    const { error } = await client.from('post_saves').delete()
+      .eq('post_id', postId).eq('user_id', auth.user.id);
+    if (error) throw error;
+    return false;
+  }
+  const { error } = await client.from('post_saves').insert({ post_id: postId, user_id: auth.user.id });
+  if (error) throw error;
+  return true;
 }
 
 export async function togglePostLike(postId: string): Promise<boolean> {
