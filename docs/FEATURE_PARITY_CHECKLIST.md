@@ -70,7 +70,7 @@ Do not mark a feature complete based only on a visible screen or button. Complet
 | Alt text / accessibility descriptions | [ ] | Not established. |
 | Likes / unlike | [~] | Like service and feed action exist; concurrency and duplicate-action tests needed. |
 | Comments and threaded replies | [~] | Comment list, posting and reply threading are implemented in the Home feed; Android/Web runtime and authorization tests remain. |
-| Comment likes / reactions | [ ] | Not established. |
+| Comment likes / reactions | [~] | Six reaction types, one reaction per user/comment, Supabase storage/RLS and feed comment controls added; Android/Web runtime, duplicate-action, visibility and automated tests remain. |
 | Reposts / reshares | [ ] | Not established. |
 | Share to user, chat or external app | [ ] | Not established. |
 | Save/bookmark posts | [ ] | Not established. |
