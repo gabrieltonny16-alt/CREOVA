@@ -69,7 +69,7 @@ Do not mark a feature complete based only on a visible screen or button. Complet
 | Location/topic tagging | [ ] | Not established. |
 | Alt text / accessibility descriptions | [ ] | Not established. |
 | Likes / unlike | [~] | Like service and feed action exist; concurrency and duplicate-action tests needed. |
-| Comments and threaded replies | [ ] | Not established. |
+| Comments and threaded replies | [~] | Comment list, posting and reply threading are implemented in the Home feed; Android/Web runtime and authorization tests remain. |
 | Comment likes / reactions | [ ] | Not established. |
 | Reposts / reshares | [ ] | Not established. |
 | Share to user, chat or external app | [ ] | Not established. |
