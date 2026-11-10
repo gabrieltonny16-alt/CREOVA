@@ -83,57 +83,75 @@ export async function createPost(input: {
   await insertPost(input);
 }
 
+export async function createPostWithImages(input: {
+  caption: string;
+  postType?: CreovaFeedPost['post_type'];
+  visibility?: CreovaFeedPost['visibility'];
+  images: PostImageInput[];
+}): Promise<void> {
+  if (!input.images.length) throw new Error('Choose at least one photo.');
+  if (input.images.length > 10) throw new Error('A post can contain up to 10 photos.');
+
+  const client = requireSupabase();
+  for (const image of input.images) {
+    const mimeType = image.mimeType.toLowerCase();
+    if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(mimeType)) {
+      throw new Error('Use JPEG, PNG, or WebP photos.');
+    }
+    if (image.fileSize !== null && image.fileSize > MAX_IMAGE_BYTES) {
+      throw new Error('Each photo must be smaller than 10 MB.');
+    }
+  }
+
+  const { id: postId, userId } = await insertPost(input);
+  const uploadedPaths: string[] = [];
+  try {
+    for (let position = 0; position < input.images.length; position += 1) {
+      const image = input.images[position];
+      const mimeType = image.mimeType.toLowerCase();
+      const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+      const fileName = `image-${Date.now()}-${position}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
+      const objectPath = `${userId}/${postId}/${fileName}`;
+
+      const response = await fetch(image.uri);
+      if (!response.ok) throw new Error('Could not read a selected photo from your device.');
+      const fileBody = await response.arrayBuffer();
+      if (fileBody.byteLength > MAX_IMAGE_BYTES) throw new Error('Each photo must be smaller than 10 MB.');
+
+      const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
+        contentType: mimeType,
+        cacheControl: '3600',
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      uploadedPaths.push(objectPath);
+
+      const { error: metadataError } = await client.from('post_media').insert({
+        post_id: postId,
+        object_path: objectPath,
+        media_type: 'image',
+        mime_type: mimeType,
+        file_size_bytes: fileBody.byteLength,
+        width: image.width || null,
+        height: image.height || null,
+        position,
+      });
+      if (metadataError) throw metadataError;
+    }
+  } catch (error) {
+    if (uploadedPaths.length) await client.storage.from(MEDIA_BUCKET).remove(uploadedPaths);
+    await client.from('posts').delete().eq('id', postId);
+    throw error;
+  }
+}
+
 export async function createPostWithImage(input: {
   caption: string;
   postType?: CreovaFeedPost['post_type'];
   visibility?: CreovaFeedPost['visibility'];
   image: PostImageInput;
 }): Promise<void> {
-  const client = requireSupabase();
-  const mimeType = input.image.mimeType.toLowerCase();
-  if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(mimeType)) {
-    throw new Error('Use a JPEG, PNG, or WebP image.');
-  }
-  if (input.image.fileSize !== null && input.image.fileSize > MAX_IMAGE_BYTES) {
-    throw new Error('Choose an image smaller than 10 MB.');
-  }
-
-  const { id: postId, userId } = await insertPost(input);
-  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
-  const fileName = `image-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
-  const objectPath = `${userId}/${postId}/${fileName}`;
-
-  try {
-    const response = await fetch(input.image.uri);
-    if (!response.ok) throw new Error('Could not read the selected image from your device.');
-    const fileBody = await response.arrayBuffer();
-    if (fileBody.byteLength > MAX_IMAGE_BYTES) throw new Error('Choose an image smaller than 10 MB.');
-
-    const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
-      contentType: mimeType,
-      cacheControl: '3600',
-      upsert: false,
-    });
-    if (uploadError) throw uploadError;
-
-    const { error: metadataError } = await client.from('post_media').insert({
-      post_id: postId,
-      object_path: objectPath,
-      media_type: 'image',
-      mime_type: mimeType,
-      file_size_bytes: fileBody.byteLength,
-      width: input.image.width || null,
-      height: input.image.height || null,
-      position: 0,
-    });
-    if (metadataError) {
-      await client.storage.from(MEDIA_BUCKET).remove([objectPath]);
-      throw metadataError;
-    }
-  } catch (error) {
-    await client.from('posts').delete().eq('id', postId);
-    throw error;
-  }
+  return createPostWithImages({ ...input, images: [input.image] });
 }
 
 export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
