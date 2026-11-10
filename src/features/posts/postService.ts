@@ -259,7 +259,7 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
       repostCount: reposts.length,
       repostedByMe: reposts.some(row => row.user_id === auth.user.id),
       savedByMe: savedIds.has(post.id),
-      repostedBy: latest?.reposter ? { id: latest.user_id, ...latest.reposter } : null,
+      repostedBy: latest?.reposter ? { ...latest.reposter, id: latest.user_id } : null,
       feedCreatedAt: latest?.created_at ?? post.created_at,
     };
   }).sort((a, b) => new Date(b.feedCreatedAt).getTime() - new Date(a.feedCreatedAt).getTime());
@@ -292,7 +292,7 @@ export async function getPostById(postId: string): Promise<CreovaFeedPost> {
     repostCount: rows.length,
     repostedByMe: rows.some(row => row.user_id === auth.user.id),
     savedByMe: !!savedResult.data,
-    repostedBy: latest?.reposter ? { id: latest.user_id, ...latest.reposter } : null,
+    repostedBy: latest?.reposter ? { ...latest.reposter, id: latest.user_id } : null,
     feedCreatedAt: latest?.created_at ?? post.created_at,
   };
 }
