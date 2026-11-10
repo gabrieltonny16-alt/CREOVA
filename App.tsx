@@ -3,8 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImages, getHomeFeed, togglePostLike } from './src/features/posts/postService';
-import type { CreovaFeedPost } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, togglePostLike, getPostComments, createPostComment } from './src/features/posts/postService';
+import type { CreovaFeedPost, CreovaPostComment } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -18,6 +18,7 @@ import {
   View,
   useWindowDimensions,
   Switch,
+  Modal,
 } from 'react-native';
 
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -69,6 +70,52 @@ function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyPost, setBusyPost] = useState('');
+  const [commentPost, setCommentPost] = useState<CreovaFeedPost | null>(null);
+  const [comments, setComments] = useState<CreovaPostComment[]>([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [replyTo, setReplyTo] = useState<CreovaPostComment | null>(null);
+  const [commentBusy, setCommentBusy] = useState(false);
+  const [commentMessage, setCommentMessage] = useState('');
+
+  async function openComments(post: CreovaFeedPost) {
+    setCommentPost(post);
+    setComments([]);
+    setCommentDraft('');
+    setReplyTo(null);
+    setCommentMessage('');
+    setCommentsLoading(true);
+    try {
+      setComments(await getPostComments(post.id));
+    } catch (error) {
+      setCommentMessage(error instanceof Error ? error.message : 'Could not load comments.');
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
+
+  async function submitComment() {
+    if (!commentPost || !commentDraft.trim() || commentBusy) return;
+    setCommentBusy(true);
+    setCommentMessage('');
+    try {
+      await createPostComment({
+        postId: commentPost.id,
+        body: commentDraft,
+        parentCommentId: replyTo?.id ?? null,
+      });
+      const updated = await getPostComments(commentPost.id);
+      setComments(updated);
+      setPosts(items => items.map(item => item.id === commentPost.id ? { ...item, commentCount: updated.length } : item));
+      setCommentPost(current => current ? { ...current, commentCount: updated.length } : current);
+      setCommentDraft('');
+      setReplyTo(null);
+    } catch (error) {
+      setCommentMessage(error instanceof Error ? error.message : 'Could not publish your comment.');
+    } finally {
+      setCommentBusy(false);
+    }
+  }
 
   async function loadFeed() {
     setLoading(true);
@@ -148,10 +195,67 @@ function HomeScreen() {
             <TouchableOpacity disabled={busyPost === post.id} onPress={() => likePost(post.id)} style={styles.postAction}>
               <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
             </TouchableOpacity>
-            <View style={styles.postAction}><Text style={styles.postActionText}>▢ {post.commentCount}</Text></View>
+            <TouchableOpacity onPress={() => openComments(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={`View ${post.commentCount} comments`}>
+              <Text style={styles.postActionText}>▢ {post.commentCount} Comments</Text>
+            </TouchableOpacity>
           </View>
         </View>
       ))}
+      <Modal visible={!!commentPost} transparent animationType="slide" onRequestClose={() => setCommentPost(null)}>
+        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#020611B8' }}>
+          <View style={{ maxHeight: '86%', minHeight: '55%', backgroundColor: COLORS.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: COLORS.border, padding: 18, gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View>
+                <Text style={styles.subheading}>Comments</Text>
+                <Text style={styles.mutedSmall}>{commentPost?.commentCount ?? comments.length} CONVERSATION ENTRIES</Text>
+              </View>
+              <TouchableOpacity onPress={() => setCommentPost(null)} style={styles.refreshButton}><Text style={styles.refreshText}>Close</Text></TouchableOpacity>
+            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 13, paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+              {commentsLoading && <EmptyState title="Loading comments" description="Fetching the conversation for this post." />}
+              {!commentsLoading && comments.length === 0 && <EmptyState title="Start the conversation" description="Be the first to comment on this post." />}
+              {comments.map(comment => (
+                <View key={comment.id} style={{ paddingLeft: comment.parent_comment_id ? 22 : 0, gap: 5 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={styles.resultAvatar}>
+                      {comment.author?.avatar_url
+                        ? <Image source={{ uri: comment.author.avatar_url }} style={styles.requestAvatarImage} />
+                        : <Text style={styles.resultAvatarText}>{(comment.author?.display_name || comment.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.resultName}>{comment.author?.display_name || 'CREOVA member'}</Text>
+                      <Text style={styles.resultHandle}>@{comment.author?.username || 'member'} · {new Date(comment.created_at).toLocaleString()}</Text>
+                    </View>
+                  </View>
+                  <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 20, paddingLeft: 50 }}>{comment.body}</Text>
+                  <TouchableOpacity onPress={() => setReplyTo(comment)} style={{ alignSelf: 'flex-start', marginLeft: 50, paddingVertical: 3 }}>
+                    <Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>Reply</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            {!!commentMessage && <Text style={styles.notice}>{commentMessage}</Text>}
+            {replyTo && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.surfaceRaised, padding: 9, borderRadius: 9 }}>
+              <Text style={styles.resultHandle}>Replying to @{replyTo.author?.username || 'member'}</Text>
+              <TouchableOpacity onPress={() => setReplyTo(null)}><Text style={{ color: '#A7C6FF', fontSize: 10 }}>Cancel reply</Text></TouchableOpacity>
+            </View>}
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+              <TextInput
+                value={commentDraft}
+                onChangeText={setCommentDraft}
+                multiline
+                maxLength={2000}
+                placeholder={replyTo ? 'Write a reply…' : 'Add a comment…'}
+                placeholderTextColor="#71819C"
+                style={{ flex: 1, minHeight: 44, maxHeight: 110, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 12, paddingVertical: 10, fontSize: 13 }}
+              />
+              <TouchableOpacity disabled={commentBusy || !commentDraft.trim()} onPress={submitComment} style={{ minHeight: 44, borderRadius: 11, paddingHorizontal: 15, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: commentBusy || !commentDraft.trim() ? 0.5 : 1 }}>
+                <Text style={styles.publishButtonText}>{commentBusy ? '…' : 'Send'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
