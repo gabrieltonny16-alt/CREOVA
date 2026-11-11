@@ -18,8 +18,7 @@ create table public.stories (
   )
 );
 
-create index stories_active_user_idx on public.stories (user_id, created_at desc)
-  where expires_at > now();
+create index stories_active_user_idx on public.stories (user_id, expires_at, created_at desc);
 create index stories_active_expiry_idx on public.stories (expires_at);
 
 create table public.story_views (
