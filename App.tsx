@@ -656,20 +656,31 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   );
 }
 
-function DiscoverScreen() {
+function DiscoverScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+  const [mode, setMode] = useState<'posts' | 'people'>('posts');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<Awaited<ReturnType<typeof searchProfiles>>[number] & { followState: 'none' | 'requested' | 'following' }>>([]);
+  const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [postsBusy, setPostsBusy] = useState(true);
   const [busyFollowId, setBusyFollowId] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    getForYouFeed()
+      .then(items => { if (active) setPosts(items); })
+      .catch(error => { if (active) setMessage(error instanceof Error ? error.message : 'Could not load Explore posts.'); })
+      .finally(() => { if (active) setPostsBusy(false); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     const term = query.trim();
     let active = true;
-    if (term.length < 2) {
+    if (mode !== 'people' || term.length < 2) {
       setResults([]);
-      setMessage('');
-      setBusy(false);
+      if (mode === 'people') { setMessage(''); setBusy(false); }
       return () => { active = false; };
     }
     const timer = setTimeout(async () => {
@@ -686,7 +697,7 @@ function DiscoverScreen() {
       }
     }, 300);
     return () => { active = false; clearTimeout(timer); };
-  }, [query]);
+  }, [query, mode]);
 
   async function toggleFollow(id: string) {
     const current = results.find(item => item.id === id);
@@ -704,24 +715,52 @@ function DiscoverScreen() {
     finally { setBusyFollowId(''); }
   }
 
+  const term = query.trim().toLowerCase();
+  const visiblePosts = posts.filter(post => !term || post.caption.toLowerCase().includes(term)
+    || (post.author?.username ?? '').toLowerCase().includes(term)
+    || (post.author?.display_name ?? '').toLowerCase().includes(term));
+
   return <View style={styles.screenContent}>
     <View style={styles.searchRow}>
-      <TextInput value={query} onChangeText={setQuery} placeholder="Search people on CREOVA" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
+      <TextInput value={query} onChangeText={setQuery} placeholder={mode === 'posts' ? 'Search posts and creators' : 'Search people on CREOVA'} placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
+    </View>
+    <View style={{ flexDirection: 'row', gap: 8, marginBottom: 14 }}>
+      {(['posts', 'people'] as const).map(item => <TouchableOpacity key={item} onPress={() => { setMode(item); setMessage(''); }} style={{ flex: 1, paddingVertical: 11, borderRadius: 12, alignItems: 'center', backgroundColor: mode === item ? COLORS.accentSoft : COLORS.surface, borderWidth: 1, borderColor: mode === item ? COLORS.blue : COLORS.border }}>
+        <Text style={{ color: mode === item ? COLORS.text : COLORS.muted, fontWeight: '800', fontSize: 12 }}>{item === 'posts' ? 'Posts & videos' : 'People'}</Text>
+      </TouchableOpacity>)}
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
-    {busy && <Text style={styles.notice}>Searching…</Text>}
-    {results.map(item => <View key={item.id} style={styles.resultRow}>
-      <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
-      <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
-      <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton} accessibilityRole="button" accessibilityLabel={item.followState === 'following' ? 'Unfollow' : item.followState === 'requested' ? 'Cancel follow request' : 'Follow'}>
-        <Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text>
-      </TouchableOpacity>
-    </View>)}
-    {query.trim().length < 2 && <EmptyState title="Find people to follow" description="Search by username to find creators and connect with them." />}
-    {query.trim().length >= 2 && !busy && !message && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
+    {mode === 'people' ? <>
+      {busy && <Text style={styles.notice}>Searching…</Text>}
+      {results.map(item => <View key={item.id} style={styles.resultRow}>
+        <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
+        <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
+        <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton} accessibilityRole="button" accessibilityLabel={item.followState === 'following' ? 'Unfollow' : item.followState === 'requested' ? 'Cancel follow request' : 'Follow'}>
+          <Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text>
+        </TouchableOpacity>
+      </View>)}
+      {query.trim().length < 2 && <EmptyState title="Find people to follow" description="Search by username to find creators and connect with them." />}
+      {query.trim().length >= 2 && !busy && !message && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
+    </> : <>
+      {postsBusy && <Text style={styles.notice}>Loading posts and videos…</Text>}
+      {!postsBusy && visiblePosts.length === 0 && <EmptyState title={term ? 'No matching posts' : 'Nothing to explore yet'} description={term ? 'Try another caption or creator name.' : 'Public posts and videos from creators will appear here.'} />}
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+        {visiblePosts.map(post => {
+          const media = post.media[0];
+          return <TouchableOpacity key={post.id} onPress={() => onOpenPost(post.id)} activeOpacity={0.8} style={{ width: '32%', aspectRatio: 0.78, borderRadius: 9, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border }}>
+            {media?.mediaType === 'image' ? <Image source={{ uri: media.signedUrl }} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
+              : media?.mediaType === 'video' ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111D31' }}><Text style={{ color: COLORS.text, fontSize: 27 }}>▶</Text><Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text></View>
+              : <View style={{ flex: 1, padding: 7, justifyContent: 'center' }}><Text numberOfLines={7} style={{ color: COLORS.text, fontSize: 11 }}>{post.caption || 'CREOVA post'}</Text></View>}
+            <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 6, paddingVertical: 5, backgroundColor: 'rgba(0,0,0,0.72)' }}>
+              <Text numberOfLines={1} style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700' }}>@{post.author?.username ?? 'creator'}</Text>
+              <Text style={{ color: '#D8E2F4', fontSize: 8 }}>♥ {post.likeCount}  ·  ▢ {post.commentCount}</Text>
+            </View>
+          </TouchableOpacity>;
+        })}
+      </View>
+    </>}
   </View>;
 }
-
 function CreateScreen() {
   const [caption, setCaption] = useState('');
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
@@ -1808,7 +1847,7 @@ function MainApp() {
 
   const renderScreen = () => {
     switch (activeTab) {
-      case 'Discover': return <DiscoverScreen />;
+      case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
       case 'Profile': return <ProfileScreen />;
