@@ -8,7 +8,7 @@ create index if not exists posts_author_pinned_created_idx
 create or replace function public.set_post_pin(p_post_id uuid, p_pinned boolean)
 returns void
 language plpgsql
-security definer
+security invoker
 set search_path = public, pg_temp
 as $$
 declare
@@ -21,7 +21,7 @@ begin
   end if;
 
   -- Serialize pin changes per account so concurrent requests cannot exceed three.
-  perform 1 from public.profiles where id = v_user_id for update;
+  perform pg_advisory_xact_lock(hashtextextended(v_user_id::text, 0));
 
   select author_id into v_author_id
   from public.posts
