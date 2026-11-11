@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
@@ -71,6 +72,14 @@ function EmptyState({ title, description }: { title: string; description: string
   );
 }
 
+function StoryVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, instance => {
+    instance.loop = true;
+    instance.play();
+  });
+  return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
+}
+
 function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: string | null; onSharedPostHandled: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +109,8 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
     ? stories.filter(item => item.user_id === activeStoryOwnerId)
     : [];
   const activeStory = activeStoryGroup[activeStoryIndex] ?? null;
-  const storyGroups = Array.from(new Map(stories.map(item => [item.user_id, item])).values());
+  const storyGroups = Array.from(new Map(stories.map(item => [item.user_id, item])).values())
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
 
   async function refreshStories() {
     try {
@@ -122,7 +132,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: false,
         quality: 0.9,
       });
@@ -132,10 +142,14 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         setStoryMessage('Stories must be 50 MB or smaller.');
         return;
       }
+      if (asset.duration != null && asset.duration > 60_000) {
+        setStoryMessage('Story videos must be 60 seconds or shorter.');
+        return;
+      }
       await publishStory({
         media: {
           uri: asset.uri,
-          mimeType: asset.mimeType ?? 'image/jpeg',
+          mimeType: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
           fileSize: asset.fileSize ?? null,
         },
         visibility: 'followers',
@@ -247,7 +261,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
 
   useEffect(() => {
     if (!activeStory) return;
-    const timer = setTimeout(() => { void advanceStory(); }, 6000);
+    const timer = setTimeout(() => { void advanceStory(); }, activeStory.media_type === 'video' ? 15000 : 6000);
     return () => clearTimeout(timer);
   }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId]);
 
@@ -570,7 +584,9 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
               <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)}><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
             </View>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+              {activeStory.media_type === 'video'
+                ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} />
+                : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
               {!!activeStory.caption && <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', padding: 12 }}>{activeStory.caption}</Text>}
             </View>
             {activeStory.user_id === currentUserId && <TouchableOpacity onPress={() => void loadStoryViewers()} style={{ alignSelf: 'flex-start', paddingVertical: 9 }}>
