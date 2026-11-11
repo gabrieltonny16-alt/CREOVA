@@ -13,7 +13,7 @@ import type { CreovaStory } from './src/features/stories/storyService';
 import {
   getMyConversations, getConversationMessages, createConversation, sendMessage,
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
-  subscribeToConversationMessages,
+  subscribeToConversationMessages, subscribeToInboxChanges,
 } from './src/features/messaging/messageService';
 import type { CreovaConversation, CreovaMessage } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
@@ -874,6 +874,8 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     void loadFollowRequests();
   }, []);
 
+  useEffect(() => subscribeToInboxChanges(() => { void loadMessaging(); }), []);
+
   async function refreshInbox() {
     setRefreshing(true);
     setMessage('');
@@ -1085,11 +1087,15 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const pendingOthers = activeConversation?.participants.some(person =>
     person.user_id !== currentUserId && person.membership_status === 'pending'
   ) ?? false;
+  const declinedOthers = activeConversation?.participants.some(person =>
+    person.user_id !== currentUserId && person.membership_status === 'declined'
+  ) ?? false;
   const canCompose = !!activeConversation
     && activeConversation.membershipStatus === 'accepted'
+    && !declinedOthers
     && (!pendingOthers || !activeConversation.lastMessage);
   const waitingForReply = !!activeConversation && activeConversation.membershipStatus === 'accepted'
-    && pendingOthers && !!activeConversation.lastMessage;
+    && !declinedOthers && pendingOthers && !!activeConversation.lastMessage;
 
   return <View style={{ flex: 1, gap: 12 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1271,6 +1277,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
             </View>;
           })}
         </ScrollView>
+        {declinedOthers && <Text style={[styles.notice, { padding: 13 }]}>One or more invited participants declined this conversation. Sending is paused.</Text>}
         {waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>Your message request has been sent. You can continue once the other participant accepts.</Text>}
         {activeConversation?.membershipStatus === 'accepted' && !canCompose && !waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>This conversation is waiting for the invited participants to accept.</Text>}
         {canCompose && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
