@@ -633,6 +633,7 @@ function ProfileScreen() {
   const [notice, setNotice] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
   async function loadProfile() {
     setError('');
@@ -753,6 +754,11 @@ function ProfileScreen() {
   }
 
   const visiblePosts = showSavedPosts ? savedPosts : posts.filter(post => filter === 'GRID' || post.post_type === 'iteration');
+  const analyticsTotals = posts.reduce((totals, post) => ({
+    likes: totals.likes + post.likeCount,
+    comments: totals.comments + post.commentCount,
+  }), { likes: 0, comments: 0 });
+  const topPost = [...posts].sort((a, b) => b.likeCount - a.likeCount)[0];
 
   async function shareProfile() {
     if (!profile) return;
@@ -880,13 +886,37 @@ function ProfileScreen() {
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); void loadSavedPosts(); }}>
             <Text style={styles.profileMenuItemText}>Saved posts</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice('Creator analytics will appear here when profile analytics are implemented.'); }}>
-            <Text style={styles.profileMenuItemText}>Analytics</Text><Text style={styles.profileMenuChevron}>›</Text>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setAnalyticsOpen(true); }}>
+            <Text style={styles.profileMenuItemText}>Creator analytics</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
           <View style={styles.profileMenuDivider} />
           <TouchableOpacity style={styles.profileMenuSignOut} onPress={requestSignOut}>
             <Text style={styles.profileMenuSignOutText}>Sign out</Text>
           </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+    <Modal visible={analyticsOpen} transparent animationType="slide" onRequestClose={() => setAnalyticsOpen(false)}>
+      <View style={styles.analyticsOverlay}>
+        <TouchableOpacity style={styles.analyticsScrim} activeOpacity={1} onPress={() => setAnalyticsOpen(false)} />
+        <View style={styles.analyticsSheet}>
+          <View style={styles.profileMenuHeader}>
+            <Text style={styles.profileMenuTitle}>Creator analytics</Text>
+            <TouchableOpacity onPress={() => setAnalyticsOpen(false)} accessibilityRole="button" accessibilityLabel="Close analytics">
+              <Text style={styles.profileMenuClose}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.analyticsCaption}>Engagement from your latest {posts.length} loaded posts</Text>
+          <View style={styles.analyticsStats}>
+            <View style={styles.analyticsStat}><Text style={styles.analyticsValue}>{counts.posts}</Text><Text style={styles.analyticsLabel}>Total posts</Text></View>
+            <View style={styles.analyticsStat}><Text style={styles.analyticsValue}>{analyticsTotals.likes}</Text><Text style={styles.analyticsLabel}>Likes</Text></View>
+            <View style={styles.analyticsStat}><Text style={styles.analyticsValue}>{analyticsTotals.comments}</Text><Text style={styles.analyticsLabel}>Comments</Text></View>
+          </View>
+          <View style={styles.analyticsTopPost}>
+            <Text style={styles.analyticsLabel}>TOP POST BY LIKES</Text>
+            {topPost ? <Text style={styles.analyticsTopPostText} numberOfLines={3}>{topPost.caption || 'Media post'} · {topPost.likeCount} likes</Text> : <Text style={styles.analyticsTopPostText}>Publish a post to see performance here.</Text>}
+          </View>
+          <Text style={styles.analyticsFootnote}>Views and reach are not tracked yet, so they are not estimated or displayed.</Text>
         </View>
       </View>
     </Modal>
@@ -1084,6 +1114,17 @@ const styles = StyleSheet.create({
   profilePostMetricText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
   profilePostPinned: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.7)' },
   profilePostPinnedText: { color: '#FFFFFF', fontSize: 10 },
+  analyticsOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
+  analyticsScrim: { ...StyleSheet.absoluteFillObject },
+  analyticsSheet: { backgroundColor: COLORS.surfaceRaised, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30, gap: 16 },
+  analyticsCaption: { color: COLORS.muted, fontSize: 12 },
+  analyticsStats: { flexDirection: 'row', gap: 8 },
+  analyticsStat: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 12, padding: 12, gap: 5 },
+  analyticsValue: { color: COLORS.text, fontSize: 22, fontWeight: '900' },
+  analyticsLabel: { color: COLORS.muted, fontSize: 10, fontWeight: '700' },
+  analyticsTopPost: { backgroundColor: COLORS.surface, borderRadius: 12, padding: 14, gap: 7 },
+  analyticsTopPostText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  analyticsFootnote: { color: COLORS.muted, fontSize: 11, lineHeight: 16 },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
   profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },
