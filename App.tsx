@@ -23,6 +23,7 @@ import {
   Modal,
   Share,
   Linking,
+  Alert,
 } from 'react-native';
 
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -360,15 +361,32 @@ function DiscoverScreen() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [busyFollowId, setBusyFollowId] = useState('');
-  async function search() {
-    setBusy(true); setMessage('');
-    try {
-      const profiles = await searchProfiles(query);
-      const states = await getFollowStates(profiles.map(item => item.id));
-      setResults(profiles.map(item => ({ ...item, followState: states[item.id] ?? 'none' })));
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Search failed.'); }
-    finally { setBusy(false); }
-  }
+
+  useEffect(() => {
+    const term = query.trim();
+    let active = true;
+    if (term.length < 2) {
+      setResults([]);
+      setMessage('');
+      setBusy(false);
+      return () => { active = false; };
+    }
+    const timer = setTimeout(async () => {
+      setBusy(true);
+      setMessage('');
+      try {
+        const profiles = await searchProfiles(term);
+        const states = await getFollowStates(profiles.map(item => item.id));
+        if (active) setResults(profiles.map(item => ({ ...item, followState: states[item.id] ?? 'none' })));
+      } catch (error) {
+        if (active) setMessage(error instanceof Error ? error.message : 'Search failed.');
+      } finally {
+        if (active) setBusy(false);
+      }
+    }, 300);
+    return () => { active = false; clearTimeout(timer); };
+  }, [query]);
+
   async function toggleFollow(id: string) {
     const current = results.find(item => item.id === id);
     if (!current || busyFollowId) return;
@@ -384,18 +402,22 @@ function DiscoverScreen() {
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Follow action failed.'); }
     finally { setBusyFollowId(''); }
   }
+
   return <View style={styles.screenContent}>
     <View style={styles.searchRow}>
-      <TextInput value={query} onChangeText={setQuery} placeholder="Search people on CREOVA" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={search} />
+      <TextInput value={query} onChangeText={setQuery} placeholder="Search people on CREOVA" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
+    {busy && <Text style={styles.notice}>Searching…</Text>}
     {results.map(item => <View key={item.id} style={styles.resultRow}>
       <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
       <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
-      <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton}><Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text></TouchableOpacity>
+      <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton} accessibilityRole="button" accessibilityLabel={item.followState === 'following' ? 'Unfollow' : item.followState === 'requested' ? 'Cancel follow request' : 'Follow'}>
+        <Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text>
+      </TouchableOpacity>
     </View>)}
     {query.trim().length < 2 && <EmptyState title="Find people to follow" description="Search by username to find creators and connect with them." />}
-    {query.trim().length >= 2 && !busy && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
+    {query.trim().length >= 2 && !busy && !message && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
   </View>;
 }
 
@@ -610,6 +632,7 @@ function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function loadProfile() {
     setError('');
@@ -712,16 +735,32 @@ function ProfileScreen() {
     }
   }
 
-  async function signOut() {
-    await supabase?.auth.signOut();
+  async function confirmSignOut() {
+    try {
+      const { error: signOutError } = await supabase!.auth.signOut();
+      if (signOutError) throw signOutError;
+      setMenuOpen(false);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not sign out.');
+    }
+  }
+
+  function requestSignOut() {
+    Alert.alert('Sign out of CREOVA?', 'You can sign back in at any time.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Sign out', style: 'destructive', onPress: () => { void confirmSignOut(); } },
+    ]);
   }
 
   const visiblePosts = showSavedPosts ? savedPosts : posts.filter(post => filter === 'ALL'
     || (filter === 'ANCHORS' ? post.post_type === 'anchor' : post.post_type === 'iteration'));
 
   return <View style={styles.screenContent}>
-    <View style={styles.sectionHeading}>
-      <Text style={styles.subheading}>Profile</Text>
+    <View style={styles.profileTopBar}>
+      <Text style={styles.subheading}>@{profile?.username || 'Profile'}</Text>
+      <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.profileMenuButton} accessibilityRole="button" accessibilityLabel="Open profile menu">
+        <Text style={styles.profileMenuButtonText}>•••</Text>
+      </TouchableOpacity>
     </View>
     {profile ? <>
       <View style={styles.profileHero}>
@@ -746,12 +785,6 @@ function ProfileScreen() {
           <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.posts}</Text><Text style={styles.profileStatLabel}>POSTS</Text></View>
           <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></View>
           <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></View>
-        </View>
-        <View style={styles.profileActions}>
-          <TouchableOpacity onPress={() => { setNotice(''); setEditing(value => !value); }} style={styles.profilePrimaryAction}>
-            <Text style={styles.profilePrimaryActionText}>{editing ? 'Close editor' : 'Edit profile'}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={signOut} style={styles.profileSecondaryAction}><Text style={styles.profileSecondaryActionText}>Sign out</Text></TouchableOpacity>
         </View>
       </View>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
@@ -789,6 +822,32 @@ function ProfileScreen() {
         </View>)}
       </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
+    <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <View style={styles.profileMenuOverlay}>
+        <TouchableOpacity style={styles.profileMenuScrim} activeOpacity={1} onPress={() => setMenuOpen(false)} />
+        <View style={styles.profileMenuDrawer}>
+          <View style={styles.profileMenuHeader}>
+            <Text style={styles.profileMenuTitle}>Account</Text>
+            <TouchableOpacity onPress={() => setMenuOpen(false)} accessibilityRole="button" accessibilityLabel="Close profile menu">
+              <Text style={styles.profileMenuClose}>×</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice(''); setEditing(true); }}>
+            <Text style={styles.profileMenuItemText}>Edit profile</Text><Text style={styles.profileMenuChevron}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); void loadSavedPosts(); }}>
+            <Text style={styles.profileMenuItemText}>Saved posts</Text><Text style={styles.profileMenuChevron}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice(''); setEditing(true); }}>
+            <Text style={styles.profileMenuItemText}>Privacy settings</Text><Text style={styles.profileMenuChevron}>›</Text>
+          </TouchableOpacity>
+          <View style={styles.profileMenuDivider} />
+          <TouchableOpacity style={styles.profileMenuSignOut} onPress={requestSignOut}>
+            <Text style={styles.profileMenuSignOutText}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   </View>;
 }
 
@@ -827,7 +886,6 @@ function MainApp() {
       <View style={styles.app}>
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
-          {isWide && <Text style={styles.topBarNote}>THE SOCIAL NETWORK BUILT FOR EVOLUTION</Text>}
         </View>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
@@ -861,7 +919,6 @@ const styles = StyleSheet.create({
   brandMarkText: { color: '#8DB8FF', fontSize: 21, fontWeight: '800' },
   brandName: { color: COLORS.text, fontSize: 15, fontWeight: '900', letterSpacing: 2.6 },
   brandTagline: { color: COLORS.muted, fontSize: 8, letterSpacing: 1.4, marginTop: 3 },
-  topBarNote: { color: COLORS.muted, fontSize: 10, letterSpacing: 1.8 },
   topBarAction: { width: 38, height: 38, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
   topBarActionText: { color: '#A7C6FF', fontSize: 21 },
   body: { flex: 1 },
@@ -945,11 +1002,21 @@ const styles = StyleSheet.create({
   profileStat: { alignItems: 'center', gap: 4 },
   profileStatNumber: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
   profileStatLabel: { color: COLORS.muted, fontSize: 8, letterSpacing: 1, fontWeight: '800' },
-  profileActions: { flexDirection: 'row', gap: 9 },
-  profilePrimaryAction: { flex: 1, minHeight: 42, borderRadius: 11, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center' },
-  profilePrimaryActionText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
-  profileSecondaryAction: { minHeight: 42, borderRadius: 11, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center' },
-  profileSecondaryActionText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
+  profileTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 42 },
+  profileMenuButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+  profileMenuButtonText: { color: '#A7C6FF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
+  profileMenuOverlay: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
+  profileMenuScrim: { ...StyleSheet.absoluteFillObject },
+  profileMenuDrawer: { width: '82%', maxWidth: 340, height: '100%', backgroundColor: COLORS.surface, borderLeftWidth: 1, borderLeftColor: COLORS.border, paddingHorizontal: 20, paddingTop: 54, gap: 4 },
+  profileMenuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginBottom: 8 },
+  profileMenuTitle: { color: COLORS.text, fontSize: 20, fontWeight: '900' },
+  profileMenuClose: { color: COLORS.muted, fontSize: 30, lineHeight: 32, paddingHorizontal: 5 },
+  profileMenuItem: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingHorizontal: 3 },
+  profileMenuItemText: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  profileMenuChevron: { color: COLORS.muted, fontSize: 23 },
+  profileMenuDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
+  profileMenuSignOut: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 3 },
+  profileMenuSignOutText: { color: '#FF91A9', fontSize: 13, fontWeight: '800' },
   profileEditorCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 16, gap: 10 },
   profileFeatureRow: { flexDirection: 'row', gap: 9 },
   profileFeature: { flex: 1, padding: 13, borderRadius: 14, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border, gap: 6 },
