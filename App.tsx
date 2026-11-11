@@ -9,6 +9,8 @@ import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
   Image,
   StatusBar,
   StyleSheet,
@@ -49,10 +51,7 @@ function Brand() {
   return (
     <View style={styles.brandRow}>
       <View style={styles.brandMark}><Text style={styles.brandMarkText}>C</Text></View>
-      <View>
-        <Text style={styles.brandName}>CREOVA</Text>
-        <Text style={styles.brandTagline}>CREATE. CONNECT. EVOLVE.</Text>
-      </View>
+      <Text style={styles.brandName}>CREOVA</Text>
     </View>
   );
 }
@@ -234,31 +233,8 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
 
   return (
     <View style={styles.screenContent}>
-      <View style={styles.sectionHeading}>
-        <View>
-          <Text style={styles.eyebrow}>YOUR WORLD</Text>
-          <Text style={styles.heading}>Home</Text>
-        </View>
-        <TouchableOpacity onPress={loadFeed} style={styles.refreshButton}>
-          <Text style={styles.refreshText}>↻ Refresh</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={styles.welcomeCard}>
-        <View style={styles.welcomeGlow} />
-        <Text style={styles.welcomeEyebrow}>A NEW WAY TO BE SOCIAL</Text>
-        <Text style={styles.welcomeTitle}>Your world.{ '\n' }Your evolution.</Text>
-        <Text style={styles.welcomeCopy}>Connect with people, discover ideas, share what you create, and show how it evolves.</Text>
-        <View style={styles.pillarRow}>
-          <View style={styles.pillar}><Text style={styles.pillarNumber}>01</Text><Text style={styles.pillarLabel}>CONNECT</Text></View>
-          <View style={styles.pillarDivider} />
-          <View style={styles.pillar}><Text style={styles.pillarNumber}>02</Text><Text style={styles.pillarLabel}>CREATE</Text></View>
-          <View style={styles.pillarDivider} />
-          <View style={styles.pillar}><Text style={styles.pillarNumber}>03</Text><Text style={styles.pillarLabel}>EVOLVE</Text></View>
-        </View>
-      </View>
       <View style={styles.feedHeading}>
-        <Text style={styles.subheading}>Your feed</Text>
-        <Text style={styles.mutedSmall}>FOLLOWING</Text>
+        <Text style={styles.subheading}>Following</Text>
       </View>
       {!!message && <Text style={styles.notice}>{message}</Text>}
       {loading && <EmptyState title="Loading your feed" description="Finding the latest posts from your CREOVA network." />}
@@ -297,7 +273,10 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         </View>
       ))}
       <Modal visible={!!commentPost} transparent animationType="slide" onRequestClose={() => setCommentPost(null)}>
-        <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#020611B8' }}>
+        <KeyboardAvoidingView
+          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#020611B8' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={{ maxHeight: '86%', minHeight: '55%', backgroundColor: COLORS.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: COLORS.border, padding: 18, gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
               <View>
@@ -369,7 +348,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -406,11 +385,8 @@ function DiscoverScreen() {
     finally { setBusyFollowId(''); }
   }
   return <View style={styles.screenContent}>
-    <Text style={styles.eyebrow}>FIND YOUR PEOPLE</Text>
-    <Text style={styles.heading}>Explore</Text>
     <View style={styles.searchRow}>
-      <TextInput value={query} onChangeText={setQuery} placeholder="Search usernames" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} onSubmitEditing={search} />
-      <TouchableOpacity onPress={search} disabled={busy} style={styles.searchButton}><Text style={styles.searchButtonText}>{busy ? '…' : 'Search'}</Text></TouchableOpacity>
+      <TextInput value={query} onChangeText={setQuery} placeholder="Search people on CREOVA" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" onSubmitEditing={search} />
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
     {results.map(item => <View key={item.id} style={styles.resultRow}>
@@ -418,7 +394,7 @@ function DiscoverScreen() {
       <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
       <TouchableOpacity onPress={() => toggleFollow(item.id)} disabled={busyFollowId === item.id} style={styles.followButton}><Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text></TouchableOpacity>
     </View>)}
-    {query.trim().length < 2 && <EmptyState title="Discover something new" description="Search for CREOVA members by username. More discovery feeds and trending topics will follow." />}
+    {query.trim().length < 2 && <EmptyState title="Find people to follow" description="Search by username to find creators and connect with them." />}
     {query.trim().length >= 2 && !busy && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
   </View>;
 }
@@ -498,11 +474,9 @@ function CreateScreen() {
   }
 
   return <View style={styles.screenContent}>
-    <Text style={styles.eyebrow}>MAKE SOMETHING THAT MOVES</Text>
-    <Text style={styles.heading}>Create</Text>
     <View style={styles.composerCard}>
-      <Text style={styles.composerTitle}>Share an update</Text>
-      <Text style={styles.composerHint}>Share your words or up to 10 photos with your CREOVA community.</Text>
+      <Text style={styles.composerTitle}>Create a post</Text>
+      <Text style={styles.composerHint}>Write something or add up to 10 photos.</Text>
       <TextInput
         value={caption}
         onChangeText={setCaption}
@@ -552,7 +526,6 @@ function CreateScreen() {
       </TouchableOpacity>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
 function InboxScreen() {
@@ -593,13 +566,7 @@ function InboxScreen() {
 
   return <View style={styles.screenContent}>
     <View style={styles.sectionHeading}>
-      <View>
-        <Text style={styles.eyebrow}>YOUR CONNECTIONS</Text>
-        <Text style={styles.heading}>Follow requests</Text>
-      </View>
-      <TouchableOpacity onPress={loadRequests} disabled={loading} style={styles.refreshButton}>
-        <Text style={styles.refreshText}>{loading ? '…' : '↻ Refresh'}</Text>
-      </TouchableOpacity>
+      <Text style={styles.subheading}>Follow requests</Text>
     </View>
     <Text style={styles.mutedSmall}>{requests.length} PENDING REQUEST{requests.length === 1 ? '' : 'S'}</Text>
     {!!message && <Text style={styles.notice}>{message}</Text>}
@@ -754,13 +721,7 @@ function ProfileScreen() {
 
   return <View style={styles.screenContent}>
     <View style={styles.sectionHeading}>
-      <View>
-        <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
-        <Text style={styles.heading}>Profile</Text>
-      </View>
-      <TouchableOpacity onPress={loadProfile} style={styles.refreshButton}>
-        <Text style={styles.refreshText}>↻ Refresh</Text>
-      </TouchableOpacity>
+      <Text style={styles.subheading}>Profile</Text>
     </View>
     {profile ? <>
       <View style={styles.profileHero}>
@@ -810,10 +771,6 @@ function ProfileScreen() {
           <Text style={styles.searchButtonText}>{saving ? 'Saving…' : 'Save changes'}</Text>
         </TouchableOpacity>
       </View>}
-      <View style={styles.profileFeatureRow}>
-        <View style={styles.profileFeature}><Text style={styles.profileFeatureTitle}>EXECUTION</Text><Text style={styles.profileFeatureCopy}>Show the work behind the result.</Text></View>
-        <View style={styles.profileFeature}><Text style={styles.profileFeatureTitle}>EVOLUTION</Text><Text style={styles.profileFeatureCopy}>Make progress visible.</Text></View>
-      </View>
       <View style={styles.profileContentHeading}>
         <Text style={styles.subheading}>{showSavedPosts ? 'Saved posts' : 'Your work'}</Text>
         <TouchableOpacity onPress={() => showSavedPosts ? setShowSavedPosts(false) : loadSavedPosts()} disabled={savedLoading} style={styles.refreshButton}>
@@ -871,7 +828,6 @@ function MainApp() {
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
           {isWide && <Text style={styles.topBarNote}>THE SOCIAL NETWORK BUILT FOR EVOLUTION</Text>}
-          <View style={styles.topBarAction}><Text style={styles.topBarActionText}>✧</Text></View>
         </View>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
@@ -898,12 +854,12 @@ function MainApp() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background },
   app: { flex: 1, backgroundColor: COLORS.background },
-  topBar: { height: 72, paddingHorizontal: 20, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  topBar: { height: 56, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   topBarWide: { paddingHorizontal: 36 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  brandMark: { width: 38, height: 38, borderRadius: 13, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C', alignItems: 'center', justifyContent: 'center' },
-  brandMarkText: { color: '#8DB8FF', fontSize: 24, fontWeight: '800' },
-  brandName: { color: COLORS.text, fontSize: 17, fontWeight: '900', letterSpacing: 2.6 },
+  brandMark: { width: 32, height: 32, borderRadius: 13, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C', alignItems: 'center', justifyContent: 'center' },
+  brandMarkText: { color: '#8DB8FF', fontSize: 21, fontWeight: '800' },
+  brandName: { color: COLORS.text, fontSize: 15, fontWeight: '900', letterSpacing: 2.6 },
   brandTagline: { color: COLORS.muted, fontSize: 8, letterSpacing: 1.4, marginTop: 3 },
   topBarNote: { color: COLORS.muted, fontSize: 10, letterSpacing: 1.8 },
   topBarAction: { width: 38, height: 38, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
@@ -917,10 +873,10 @@ const styles = StyleSheet.create({
   sideNavLabel: { color: COLORS.muted, fontSize: 14, fontWeight: '600' },
   activeText: { color: '#8DB8FF' },
   mainScroll: { flex: 1 },
-  mainScrollContent: { paddingHorizontal: 20, paddingTop: 28, paddingBottom: 36 },
+  mainScrollContent: { paddingHorizontal: 12, paddingTop: 14, paddingBottom: 28 },
   contentMax: { width: '100%', maxWidth: 640, alignSelf: 'center' },
   contentMaxWide: { maxWidth: 760 },
-  screenContent: { gap: 18 },
+  screenContent: { gap: 12 },
   sectionHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   eyebrow: { color: '#83AFFF', fontSize: 10, fontWeight: '800', letterSpacing: 2.1, marginBottom: 7 },
   heading: { color: COLORS.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.7 },
@@ -954,11 +910,11 @@ const styles = StyleSheet.create({
   notice: { color: COLORS.muted, fontSize: 11, lineHeight: 18, paddingHorizontal: 3 },
   refreshButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 11, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
   refreshText: { color: '#A7C6FF', fontSize: 11, fontWeight: '800' },
-  postCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 15, gap: 14 },
+  postCard: { backgroundColor: 'transparent', borderWidth: 0, borderBottomWidth: 1, borderBottomColor: COLORS.border, borderRadius: 0, padding: 0, paddingBottom: 16, gap: 10 },
   postHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
   postAuthor: { flex: 1, gap: 4 },
   postCaption: { color: COLORS.text, fontSize: 14, lineHeight: 22 },
-  feedImage: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#0B1322' },
+  feedImage: { width: '100%', aspectRatio: 1, borderRadius: 0, backgroundColor: '#0B1322' },
   imagePickButton: { minHeight: 43, borderRadius: 11, borderWidth: 1, borderColor: '#355B9C', backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
   imagePickButtonText: { color: '#A7C6FF', fontSize: 12, fontWeight: '800' },
   imagePreviewWrap: { gap: 8 },
@@ -1006,7 +962,7 @@ const styles = StyleSheet.create({
   profileFilterText: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
   profileFilterTextActive: { color: '#A7C6FF' },
   profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  profilePostTile: { width: '31.5%', aspectRatio: 0.82, borderRadius: 11, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  profilePostTile: { width: '32.8%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 0 },
   profilePostImage: { width: '100%', height: '100%' },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
