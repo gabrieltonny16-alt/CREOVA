@@ -9,7 +9,7 @@ import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById,
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
-import { supabase } from './src/lib/supabase';
+import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScrollView,
@@ -208,7 +208,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   }
 
   async function loadStoryViewers() {
-    if (!activeStory || activeStory.user_id !== (await supabase.auth.getUser()).data.user?.id) return;
+    if (!activeStory || activeStory.user_id !== (await requireSupabase().auth.getUser()).data.user?.id) return;
     try {
       setStoryViewers(await getMyStoryViewers(activeStory.id));
       setViewersOpen(true);
@@ -242,7 +242,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
 
   useEffect(() => {
     void refreshStories();
-    void supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+    void requireSupabase().auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
   }, []);
 
   useEffect(() => {
