@@ -27,6 +27,13 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "CREOVA uses your microphone so you can record voice notes.",
+          "recordAudioAndroid": true
+        }
       ]
     ],
     "icon": "./assets/brand/creova-icon-safe-area-preview.png"
