@@ -875,7 +875,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     void loadFollowRequests();
   }, []);
 
-  useEffect(() => subscribeToInboxChanges(() => { void loadMessaging(); }), []);
+  useEffect(() => subscribeToInboxChanges(() => { void loadMessaging(); void loadActivity(); void loadFollowRequests(); }), []);
 
   async function refreshInbox() {
     setRefreshing(true);
