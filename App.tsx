@@ -1115,7 +1115,7 @@ const styles = StyleSheet.create({
   profilePostPinned: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.7)' },
   profilePostPinnedText: { color: '#FFFFFF', fontSize: 10 },
   analyticsOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.55)' },
-  analyticsScrim: { ...StyleSheet.absoluteFillObject },
+  analyticsScrim: { ...StyleSheet.absoluteFill },
   analyticsSheet: { backgroundColor: COLORS.surfaceRaised, borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30, gap: 16 },
   analyticsCaption: { color: COLORS.muted, fontSize: 12 },
   analyticsStats: { flexDirection: 'row', gap: 8 },
