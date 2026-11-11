@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -763,6 +763,28 @@ function ProfileScreen() {
     }
   }
 
+  async function updatePostPin(post: CreovaFeedPost) {
+    setNotice('');
+    try {
+      await setPostPinned(post.id, !post.is_pinned);
+      setPosts(await getMyPosts());
+      setNotice(post.is_pinned ? 'Post unpinned from your profile.' : 'Post pinned to your profile.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not update the pinned post.');
+    }
+  }
+
+  function requestPostPin(post: CreovaFeedPost) {
+    Alert.alert(
+      post.is_pinned ? 'Unpin this post?' : 'Pin this post?',
+      post.is_pinned ? 'It will return to its normal position in your grid.' : 'You can pin up to three posts at the top of your profile.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: post.is_pinned ? 'Unpin' : 'Pin to profile', onPress: () => { void updatePostPin(post); } },
+      ],
+    );
+  }
+
   return <View style={styles.screenContent}>
     <View style={styles.profileTopBar}>
       <Text style={styles.profileTopHandle}>@{profile?.username || 'Profile'}</Text>
@@ -835,10 +857,11 @@ function ProfileScreen() {
       </View>
       {savedLoading && showSavedPosts && <EmptyState title="Loading saved posts" description="Fetching the posts you bookmarked privately." />}
       {visiblePosts.length ? <View style={styles.profilePostGrid}>
-        {visiblePosts.map(post => <View key={post.id} style={styles.profilePostTile}>
+        {visiblePosts.map(post => <TouchableOpacity key={post.id} style={styles.profilePostTile} activeOpacity={0.9} onLongPress={() => requestPostPin(post)} accessibilityRole="button" accessibilityLabel={post.is_pinned ? 'Pinned post. Long press to unpin.' : 'Long press to pin this post'}>
           {post.media[0] ? <Image source={{ uri: post.media[0].signedUrl }} style={styles.profilePostImage} resizeMode="cover" /> : <View style={styles.profilePostTextTile}><Text style={styles.profilePostType}>{post.post_type.toUpperCase()}</Text><Text numberOfLines={4} style={styles.profilePostCaption}>{post.caption || 'CREOVA creation'}</Text></View>}
           <View style={styles.profilePostMetric}><Text style={styles.profilePostMetricText}>♥ {post.likeCount}</Text></View>
-        </View>)}
+          {post.is_pinned && <View style={styles.profilePostPinned}><Text style={styles.profilePostPinnedText}>📌</Text></View>}
+        </TouchableOpacity>)}
       </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'GRID' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
     <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
@@ -1059,6 +1082,8 @@ const styles = StyleSheet.create({
   profilePostImage: { width: '100%', height: '100%' },
   profilePostMetric: { position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.62)' },
   profilePostMetricText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
+  profilePostPinned: { position: 'absolute', top: 5, right: 5, paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.7)' },
+  profilePostPinnedText: { color: '#FFFFFF', fontSize: 10 },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
   profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },

@@ -16,6 +16,7 @@ export type CreovaFeedPost = {
   id: string;
   author_id: string;
   caption: string;
+  is_pinned: boolean;
   post_type: 'post' | 'anchor' | 'iteration';
   visibility: 'public' | 'followers';
   created_at: string;
@@ -39,6 +40,7 @@ type RawFeedPost = {
   id: string;
   author_id: string;
   caption: string;
+  is_pinned: boolean;
   post_type: CreovaFeedPost['post_type'];
   visibility: CreovaFeedPost['visibility'];
   created_at: string;
@@ -176,6 +178,7 @@ async function hydrateFeedPosts(rawPosts: RawFeedPost[], userId: string): Promis
     id: post.id,
     author_id: post.author_id,
     caption: post.caption,
+    is_pinned: post.is_pinned,
     post_type: post.post_type,
     visibility: post.visibility,
     created_at: post.created_at,
@@ -202,7 +205,19 @@ type FeedRepostRow = {
   reposter: { id: string; username: string; display_name: string } | null;
 };
 
-const FEED_POST_SELECT = 'id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
+const FEED_POST_SELECT = 'id, author_id, caption, is_pinned, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
+
+export async function setPostPinned(postId: string, pinned: boolean): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to pin posts.');
+  const { error } = await client.rpc('set_post_pin', {
+    p_post_id: postId,
+    p_pinned: pinned,
+  });
+  if (error) throw error;
+}
 
 export async function getMyPosts(): Promise<CreovaFeedPost[]> {
   const client = requireSupabase();
@@ -212,6 +227,7 @@ export async function getMyPosts(): Promise<CreovaFeedPost[]> {
 
   const { data, error } = await client.from('posts').select(FEED_POST_SELECT)
     .eq('author_id', auth.user.id)
+    .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) throw error;
