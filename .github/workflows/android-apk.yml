@@ -5,6 +5,7 @@ on:
     branches:
       - rebuild/fresh-social-platform
       - rebuild/android-bottom-safe-area
+      - rebuild/messaging-media-voice
     paths:
       - .github/workflows/android-apk.yml
       - .github/workflows/ci.yml
