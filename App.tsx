@@ -10,6 +10,12 @@ import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById,
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
+import {
+  getMyConversations, getConversationMessages, createConversation, sendMessage,
+  markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
+  subscribeToConversationMessages,
+} from './src/features/messaging/messageService';
+import type { CreovaConversation, CreovaMessage } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -29,6 +35,7 @@ import {
   Share,
   Linking,
   Alert,
+  RefreshControl,
 } from 'react-native';
 
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -817,31 +824,205 @@ function CreateScreen() {
   </View>;
 }
 function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
-  const [section, setSection] = useState<'Activity' | 'Requests'>('Activity');
+  const [section, setSection] = useState<'Messages' | 'Notifications'>('Messages');
+  const [messageSection, setMessageSection] = useState<'Chats' | 'Requests'>('Chats');
+  const [notificationSection, setNotificationSection] = useState<'Activity' | 'Follow requests'>('Activity');
   const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
-  const [requests, setRequests] = useState<Awaited<ReturnType<typeof getIncomingFollowRequests>>>([]);
+  const [followRequests, setFollowRequests] = useState<Awaited<ReturnType<typeof getIncomingFollowRequests>>>([]);
+  const [conversations, setConversations] = useState<CreovaConversation[]>([]);
+  const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState('');
   const [message, setMessage] = useState('');
+  const [activeConversation, setActiveConversation] = useState<CreovaConversation | null>(null);
+  const [threadMessages, setThreadMessages] = useState<CreovaMessage[]>([]);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
+  const [draft, setDraft] = useState('');
+  const [newChatOpen, setNewChatOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
+  const [selectedPeople, setSelectedPeople] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
+  const [groupTitle, setGroupTitle] = useState('');
 
-  async function loadActivity() {
-    setLoading(true); setMessage('');
-    try { setNotifications(await getNotifications()); }
-    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load your activity.'); }
-    finally { setLoading(false); }
+  async function loadMessaging() {
+    try {
+      const [userId, items] = await Promise.all([getCurrentMessagingUserId(), getMyConversations()]);
+      setCurrentUserId(userId);
+      setConversations(items);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load your messages.');
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function loadRequests() {
-    setLoading(true); setMessage('');
-    try { setRequests(await getIncomingFollowRequests()); }
+  async function loadActivity() {
+    try { setNotifications(await getNotifications()); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load your activity.'); }
+  }
+
+  async function loadFollowRequests() {
+    try { setFollowRequests(await getIncomingFollowRequests()); }
     catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load follow requests.'); }
-    finally { setLoading(false); }
   }
 
   useEffect(() => {
-    if (section === 'Activity') void loadActivity();
-    else void loadRequests();
-  }, [section]);
+    void loadMessaging();
+    void loadActivity();
+    void loadFollowRequests();
+  }, []);
+
+  async function refreshInbox() {
+    setRefreshing(true);
+    setMessage('');
+    try {
+      await Promise.all([loadMessaging(), loadActivity(), loadFollowRequests()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  async function openConversation(item: CreovaConversation) {
+    setActiveConversation(item);
+    setThreadMessages([]);
+    setDraft('');
+    setThreadLoading(true);
+    setConnectionStatus('CONNECTING');
+    try {
+      const messages = await getConversationMessages(item.id);
+      setThreadMessages(messages);
+      await markConversationRead(item.id);
+      await loadMessaging();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open this conversation.');
+    } finally {
+      setThreadLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!activeConversation) return;
+    const conversationId = activeConversation.id;
+    const unsubscribe = subscribeToConversationMessages(conversationId, () => {
+      void getConversationMessages(conversationId).then(setThreadMessages).catch(error => {
+        setMessage(error instanceof Error ? error.message : 'Could not refresh messages.');
+      });
+      void loadMessaging();
+      void markConversationRead(conversationId);
+    }, setConnectionStatus);
+    return unsubscribe;
+  }, [activeConversation?.id]);
+
+  useEffect(() => {
+    if (!newChatOpen) return;
+    const query = searchQuery.trim();
+    if (query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void searchProfiles(query).then(results => {
+        if (!cancelled) setSearchResults(results.filter(profile => profile.id !== currentUserId));
+      }).catch(error => {
+        if (!cancelled) setMessage(error instanceof Error ? error.message : 'Could not search people.');
+      });
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, newChatOpen, currentUserId]);
+
+  async function startConversation() {
+    if (!selectedPeople.length || busyId) return;
+    setBusyId('new-chat');
+    setMessage('');
+    try {
+      const kind = selectedPeople.length === 1 ? 'direct' : 'group';
+      const id = await createConversation({
+        kind,
+        memberIds: [currentUserId, ...selectedPeople.map(person => person.id)],
+        title: kind === 'group' ? groupTitle : undefined,
+      });
+      setNewChatOpen(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      setSelectedPeople([]);
+      setGroupTitle('');
+      await loadMessaging();
+      const items = await getMyConversations();
+      const conversation = items.find(item => item.id === id);
+      if (conversation) await openConversation(conversation);
+      else setMessage('Conversation created. Refresh your inbox to open it.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not start this conversation.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  function togglePerson(person: (typeof searchResults)[number]) {
+    setSelectedPeople(items => items.some(item => item.id === person.id)
+      ? items.filter(item => item.id !== person.id)
+      : [...items, person]);
+  }
+
+  async function submitMessage() {
+    if (!activeConversation || !draft.trim() || busyId) return;
+    setBusyId('send');
+    setMessage('');
+    try {
+      const sent = await sendMessage(activeConversation.id, draft);
+      setThreadMessages(items => items.some(item => item.id === sent.id) ? items : [...items, sent]);
+      setDraft('');
+      await loadMessaging();
+      const updated = (await getMyConversations()).find(item => item.id === activeConversation.id);
+      if (updated) setActiveConversation(updated);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Message could not be sent. Check your connection and retry.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function answerMessageRequest(accept: boolean) {
+    if (!activeConversation || busyId) return;
+    setBusyId('request');
+    setMessage('');
+    try {
+      await respondToMessageRequest(activeConversation.id, accept);
+      await loadMessaging();
+      if (accept) {
+        const updated = (await getMyConversations()).find(item => item.id === activeConversation.id);
+        if (updated) setActiveConversation(updated);
+        await markConversationRead(activeConversation.id);
+      } else {
+        setActiveConversation(null);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update this request.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function markAllRead() {
+    if (busyId) return;
+    setBusyId('all');
+    setMessage('');
+    try {
+      await markAllNotificationsRead();
+      const now = new Date().toISOString();
+      setNotifications(items => items.map(item => item.read_at ? item : { ...item, read_at: now }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not mark activity as read.');
+    } finally {
+      setBusyId('');
+    }
+  }
 
   async function openNotification(item: CreovaNotification) {
     if (busyId) return;
@@ -852,32 +1033,42 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
         setNotifications(items => items.map(value => value.id === item.id ? { ...value, read_at: new Date().toISOString() } : value));
       }
       if (item.post_id) onOpenPost(item.post_id);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open this activity.'); }
-    finally { setBusyId(''); }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open this activity.');
+    } finally {
+      setBusyId('');
+    }
   }
 
-  async function markAllRead() {
+  async function respondToFollow(followerId: string, accept: boolean) {
     if (busyId) return;
-    setBusyId('all'); setMessage('');
-    try {
-      await markAllNotificationsRead();
-      const now = new Date().toISOString();
-      setNotifications(items => items.map(item => item.read_at ? item : { ...item, read_at: now }));
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not mark activity as read.'); }
-    finally { setBusyId(''); }
-  }
-
-  async function respond(followerId: string, accept: boolean) {
-    if (busyId) return;
-    setBusyId(followerId); setMessage('');
+    setBusyId(followerId);
+    setMessage('');
     try {
       await respondToFollowRequest(followerId, accept);
-      setRequests(items => items.filter(item => item.follower_id !== followerId));
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update this request.'); }
-    finally { setBusyId(''); }
+      setFollowRequests(items => items.filter(item => item.follower_id !== followerId));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update this follow request.');
+    } finally {
+      setBusyId('');
+    }
   }
 
-  const unreadCount = notifications.filter(item => !item.read_at).length;
+  function conversationTitle(item: CreovaConversation) {
+    if (item.kind === 'group') return item.title || 'Group chat';
+    const other = item.participants.find(person => person.user_id !== currentUserId);
+    return other?.profile?.display_name || other?.profile?.username || 'CREOVA member';
+  }
+
+  function conversationSubtitle(item: CreovaConversation) {
+    if (item.kind === 'group') {
+      const accepted = item.participants.filter(person => person.membership_status === 'accepted').length;
+      return `${accepted} member${accepted === 1 ? '' : 's'} active`;
+    }
+    const other = item.participants.find(person => person.user_id !== currentUserId);
+    return other?.profile?.username ? `@${other.profile.username}` : 'Direct conversation';
+  }
+
   const notificationText: Record<CreovaNotification['notification_type'], string> = {
     follow_request: 'requested to follow you',
     new_follower: 'started following you',
@@ -887,61 +1078,212 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     comment_reply: 'replied to a comment',
     post_repost: 'reposted your post',
   };
+  const unreadNotifications = notifications.filter(item => !item.read_at).length;
+  const unreadMessages = conversations.reduce((sum, item) => sum + item.unreadCount, 0);
+  const activeConversations = conversations.filter(item => item.membershipStatus === 'accepted');
+  const incomingRequests = conversations.filter(item => item.membershipStatus === 'pending');
+  const pendingOthers = activeConversation?.participants.some(person =>
+    person.user_id !== currentUserId && person.membership_status === 'pending'
+  ) ?? false;
+  const canCompose = !!activeConversation
+    && activeConversation.membershipStatus === 'accepted'
+    && (!pendingOthers || !activeConversation.lastMessage);
+  const waitingForReply = !!activeConversation && activeConversation.membershipStatus === 'accepted'
+    && pendingOthers && !!activeConversation.lastMessage;
 
-  return <View style={styles.screenContent}>
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 22, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-      {(['Activity', 'Requests'] as const).map(value => (
-        <TouchableOpacity key={value} onPress={() => setSection(value)} style={{ paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: section === value ? COLORS.blue : 'transparent' }}>
-          <Text style={{ color: section === value ? COLORS.text : COLORS.muted, fontSize: 14, fontWeight: '800' }}>
-            {value}{value === 'Activity' && unreadCount > 0 ? ` · ${unreadCount}` : ''}
+  return <View style={{ flex: 1, gap: 12 }}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <View>
+        <Text style={styles.eyebrow}>YOUR CONNECTIONS</Text>
+        <Text style={styles.heading}>Inbox</Text>
+      </View>
+      {section === 'Messages' && <TouchableOpacity onPress={() => setNewChatOpen(true)} style={styles.searchButton}>
+        <Text style={styles.searchButtonText}>+ New message</Text>
+      </TouchableOpacity>}
+    </View>
+    <View style={{ flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+      {(['Messages', 'Notifications'] as const).map(value => (
+        <TouchableOpacity key={value} onPress={() => setSection(value)} style={{ paddingVertical: 12, paddingHorizontal: 15, borderBottomWidth: 2, borderBottomColor: section === value ? COLORS.blue : 'transparent' }}>
+          <Text style={{ color: section === value ? COLORS.text : COLORS.muted, fontSize: 13, fontWeight: '800' }}>
+            {value}{value === 'Messages' && unreadMessages > 0 ? ` · ${unreadMessages}` : ''}{value === 'Notifications' && unreadNotifications > 0 ? ` · ${unreadNotifications}` : ''}
           </Text>
         </TouchableOpacity>
       ))}
-      <View style={{ flex: 1 }} />
-      {section === 'Activity' && unreadCount > 0 && <TouchableOpacity disabled={busyId === 'all'} onPress={markAllRead}>
-        <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700' }}>Mark all read</Text>
-      </TouchableOpacity>}
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
-    {loading && <EmptyState title={section === 'Activity' ? 'Loading activity' : 'Checking requests'} description={section === 'Activity' ? 'Fetching updates from your CREOVA network.' : 'Loading people who want to follow you.'} />}
-    {!loading && section === 'Activity' && notifications.length === 0 && <EmptyState title="Your activity starts here" description="Follow, like, comment and repost activity will appear here." />}
-    {!loading && section === 'Requests' && requests.length === 0 && <EmptyState title="You're all caught up" description="New follow requests will appear here." />}
-    {!loading && section === 'Activity' && notifications.map(item => (
-      <TouchableOpacity key={item.id} disabled={!!busyId} onPress={() => openNotification(item)} style={[styles.requestCard, { backgroundColor: item.read_at ? 'transparent' : '#101827', borderColor: 'transparent', opacity: busyId === item.id ? 0.6 : 1 }]}>
-        <View style={styles.resultAvatar}>
-          {item.actor?.avatar_url
-            ? <Image source={{ uri: item.actor.avatar_url }} style={styles.requestAvatarImage} />
-            : <Text style={styles.resultAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+    {section === 'Messages' ? <>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        {(['Chats', 'Requests'] as const).map(value => (
+          <TouchableOpacity key={value} onPress={() => setMessageSection(value)} style={{ paddingVertical: 7, borderBottomWidth: 2, borderBottomColor: messageSection === value ? COLORS.blue : 'transparent' }}>
+            <Text style={{ color: messageSection === value ? COLORS.text : COLORS.muted, fontSize: 12, fontWeight: '800' }}>
+              {value}{value === 'Requests' && incomingRequests.length > 0 ? ` · ${incomingRequests.length}` : ''}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <View style={{ flex: 1 }} />
+        <Text style={styles.mutedSmall}>{connectionStatus === 'SUBSCRIBED' ? 'LIVE CHAT' : 'MESSAGES'}</Text>
+      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ gap: 8, paddingBottom: 22 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshInbox} tintColor={COLORS.blue} colors={[COLORS.blue]} />}
+      >
+        {loading && <EmptyState title="Loading your inbox" description="Fetching conversations and message requests." />}
+        {!loading && messageSection === 'Chats' && activeConversations.length === 0 && <EmptyState title="Your conversations start here" description="Start a private chat or create a group with people on CREOVA." />}
+        {!loading && messageSection === 'Requests' && incomingRequests.length === 0 && <EmptyState title="No message requests" description="New conversation requests will appear here for you to review." />}
+        {!loading && (messageSection === 'Chats' ? activeConversations : incomingRequests).map(item => {
+          const avatar = item.kind === 'group'
+            ? item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url
+            : item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url;
+          const preview = item.lastMessage?.body
+            || (item.membershipStatus === 'pending' ? 'Message request · Review before replying' : item.participants.some(person => person.membership_status === 'pending') ? 'Waiting for people to accept' : 'No messages yet');
+          return <TouchableOpacity key={item.id} onPress={() => void openConversation(item)} style={[styles.requestCard, { backgroundColor: item.unreadCount ? '#101827' : COLORS.surface, borderColor: item.unreadCount ? '#355B9C' : COLORS.border }]}>
+            <View style={styles.resultAvatar}>
+              {avatar ? <Image source={{ uri: avatar }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{conversationTitle(item).slice(0, 1).toUpperCase()}</Text>}
+            </View>
+            <View style={styles.resultInfo}>
+              <Text style={styles.resultName}>{conversationTitle(item)}</Text>
+              <Text style={styles.resultHandle}>{conversationSubtitle(item)}</Text>
+              <Text numberOfLines={1} style={{ color: item.unreadCount ? COLORS.text : COLORS.muted, fontSize: 11, marginTop: 2 }}>{preview}</Text>
+            </View>
+            {item.unreadCount > 0 && <View style={{ minWidth: 20, height: 20, borderRadius: 10, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '900' }}>{item.unreadCount > 99 ? '99+' : item.unreadCount}</Text>
+            </View>}
+          </TouchableOpacity>;
+        })}
+      </ScrollView>
+    </> : <>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 18 }}>
+        {(['Activity', 'Follow requests'] as const).map(value => (
+          <TouchableOpacity key={value} onPress={() => setNotificationSection(value)} style={{ paddingVertical: 7, borderBottomWidth: 2, borderBottomColor: notificationSection === value ? COLORS.blue : 'transparent' }}>
+            <Text style={{ color: notificationSection === value ? COLORS.text : COLORS.muted, fontSize: 12, fontWeight: '800' }}>
+              {value}{value === 'Activity' && unreadNotifications > 0 ? ` · ${unreadNotifications}` : ''}{value === 'Follow requests' && followRequests.length > 0 ? ` · ${followRequests.length}` : ''}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <View style={{ flex: 1 }} />
+        {notificationSection === 'Activity' && unreadNotifications > 0 && <TouchableOpacity disabled={busyId === 'all'} onPress={() => void markAllRead()}>
+          <Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>Mark all read</Text>
+        </TouchableOpacity>}
+      </View>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ gap: 8, paddingBottom: 22 }}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refreshInbox} tintColor={COLORS.blue} colors={[COLORS.blue]} />}
+      >
+        {notificationSection === 'Activity' && notifications.length === 0 && <EmptyState title="Your activity starts here" description="Likes, comments, mentions, reposts and follow activity will appear here." />}
+        {notificationSection === 'Activity' && notifications.map(item => (
+          <TouchableOpacity key={item.id} disabled={!!busyId} onPress={() => void openNotification(item)} style={[styles.requestCard, { backgroundColor: item.read_at ? 'transparent' : '#101827', borderColor: 'transparent', opacity: busyId === item.id ? 0.6 : 1 }]}>
+            <View style={styles.resultAvatar}>
+              {item.actor?.avatar_url ? <Image source={{ uri: item.actor.avatar_url }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+            </View>
+            <View style={styles.resultInfo}>
+              <Text style={styles.resultName}>{item.actor?.display_name || item.actor?.username || 'CREOVA member'} <Text style={{ color: COLORS.muted, fontWeight: '400' }}>{notificationText[item.notification_type]}</Text></Text>
+              <Text style={styles.resultHandle}>@{item.actor?.username || 'member'} · {new Date(item.created_at).toLocaleString()}</Text>
+            </View>
+            {!item.read_at && <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.blue }} />}
+          </TouchableOpacity>
+        ))}
+        {notificationSection === 'Activity' && notifications.length === 0 && <Text style={styles.notice}>You’re all caught up.</Text>}
+        {notificationSection === 'Follow requests' && followRequests.length === 0 && <EmptyState title="You're all caught up" description="New follow requests will appear here." />}
+        {notificationSection === 'Follow requests' && followRequests.map(item => <View key={item.follower_id} style={styles.requestCard}>
+          <View style={styles.resultAvatar}>
+            {item.follower.avatar_url ? <Image source={{ uri: item.follower.avatar_url }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{(item.follower.display_name || item.follower.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+          </View>
+          <View style={styles.resultInfo}>
+            <Text style={styles.resultName}>{item.follower.display_name || item.follower.username}</Text>
+            <Text style={styles.resultHandle}>@{item.follower.username} · {new Date(item.created_at).toLocaleDateString()}</Text>
+          </View>
+          <View style={styles.requestActions}>
+            <TouchableOpacity disabled={!!busyId} onPress={() => void respondToFollow(item.follower_id, true)} style={styles.acceptRequestButton}><Text style={styles.acceptRequestText}>{busyId === item.follower_id ? '…' : 'Accept'}</Text></TouchableOpacity>
+            <TouchableOpacity disabled={!!busyId} onPress={() => void respondToFollow(item.follower_id, false)} style={styles.declineRequestButton}><Text style={styles.declineRequestText}>Decline</Text></TouchableOpacity>
+          </View>
+        </View>)}
+      </ScrollView>
+    </>}
+    <Modal visible={newChatOpen} animationType="slide" onRequestClose={() => setNewChatOpen(false)}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: Platform.OS === 'android' ? 30 : 55, paddingHorizontal: 16, paddingBottom: 22, gap: 13 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text style={styles.heading}>New conversation</Text>
+          <TouchableOpacity onPress={() => setNewChatOpen(false)}><Text style={{ color: COLORS.text, fontSize: 26 }}>×</Text></TouchableOpacity>
         </View>
-        <View style={styles.resultInfo}>
-          <Text style={styles.resultName}>{item.actor?.display_name || item.actor?.username || 'CREOVA member'} <Text style={{ color: COLORS.muted, fontWeight: '400' }}>{notificationText[item.notification_type]}</Text></Text>
-          <Text style={styles.resultHandle}>@{item.actor?.username || 'member'} · {new Date(item.created_at).toLocaleString()}</Text>
+        <Text style={styles.notice}>Choose one person for a private chat, or two or more people to create a group.</Text>
+        <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Search by username…" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" />
+        {!!selectedPeople.length && <View style={{ gap: 7 }}>
+          <Text style={styles.editLabel}>SELECTED · {selectedPeople.length}</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+            {selectedPeople.map(person => <TouchableOpacity key={person.id} onPress={() => togglePerson(person)} style={{ backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: COLORS.blue, borderRadius: 18, paddingHorizontal: 11, paddingVertical: 7 }}>
+              <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700' }}>@{person.username} ×</Text>
+            </TouchableOpacity>)}
+          </View>
+        </View>}
+        {selectedPeople.length > 1 && <TextInput value={groupTitle} onChangeText={setGroupTitle} maxLength={80} placeholder="Group name (optional)" placeholderTextColor="#71819C" style={styles.searchInput} />}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 7 }}>
+          {searchQuery.trim().length < 2 && <EmptyState title="Find people on CREOVA" description="Type at least two characters of a username to search." />}
+          {searchQuery.trim().length >= 2 && !searchResults.length && <EmptyState title="No matches yet" description="Try another username." />}
+          {searchResults.map(person => {
+            const selected = selectedPeople.some(item => item.id === person.id);
+            return <TouchableOpacity key={person.id} onPress={() => togglePerson(person)} style={[styles.resultRow, { borderColor: selected ? COLORS.blue : COLORS.border, backgroundColor: selected ? COLORS.accentSoft : COLORS.surface }]}>
+              <View style={styles.resultAvatar}>
+                {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{person.display_name.slice(0, 1).toUpperCase()}</Text>}
+              </View>
+              <View style={styles.resultInfo}>
+                <Text style={styles.resultName}>{person.display_name}</Text>
+                <Text style={styles.resultHandle}>@{person.username}{person.is_private ? ' · Private' : ''}</Text>
+              </View>
+              <Text style={{ color: selected ? '#A7C6FF' : COLORS.muted, fontWeight: '900' }}>{selected ? '✓' : '+'}</Text>
+            </TouchableOpacity>;
+          })}
+        </ScrollView>
+        <TouchableOpacity disabled={!selectedPeople.length || busyId === 'new-chat'} onPress={() => void startConversation()} style={[styles.publishButton, (!selectedPeople.length || busyId === 'new-chat') && styles.publishButtonDisabled]}>
+          <Text style={styles.publishButtonText}>{busyId === 'new-chat' ? 'Starting…' : selectedPeople.length > 1 ? 'Create group chat' : 'Start private chat'}</Text>
+        </TouchableOpacity>
+      </KeyboardAvoidingView>
+    </Modal>
+    <Modal visible={!!activeConversation} animationType="slide" onRequestClose={() => setActiveConversation(null)}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: COLORS.background, paddingTop: Platform.OS === 'android' ? 28 : 48 }}>
+        <View style={{ minHeight: 58, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity onPress={() => { setActiveConversation(null); void loadMessaging(); }}><Text style={{ color: '#A7C6FF', fontSize: 25 }}>‹</Text></TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.resultName}>{activeConversation ? conversationTitle(activeConversation) : 'Conversation'}</Text>
+            <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}</Text>
+          </View>
         </View>
-        {!item.read_at && <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.blue }} />}
-      </TouchableOpacity>
-    ))}
-    {!loading && section === 'Requests' && requests.map(item => <View key={item.follower_id} style={styles.requestCard}>
-      <View style={styles.resultAvatar}>
-        {item.follower.avatar_url
-          ? <Image source={{ uri: item.follower.avatar_url }} style={styles.requestAvatarImage} />
-          : <Text style={styles.resultAvatarText}>{(item.follower.display_name || item.follower.username || 'C').slice(0, 1).toUpperCase()}</Text>}
-      </View>
-      <View style={styles.resultInfo}>
-        <Text style={styles.resultName}>{item.follower.display_name || item.follower.username}</Text>
-        <Text style={styles.resultHandle}>@{item.follower.username} · {new Date(item.created_at).toLocaleDateString()}</Text>
-      </View>
-      <View style={styles.requestActions}>
-        <TouchableOpacity disabled={!!busyId} onPress={() => respond(item.follower_id, true)} style={styles.acceptRequestButton}>
-          <Text style={styles.acceptRequestText}>{busyId === item.follower_id ? '…' : 'Accept'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity disabled={!!busyId} onPress={() => respond(item.follower_id, false)} style={styles.declineRequestButton}>
-          <Text style={styles.declineRequestText}>Decline</Text>
-        </TouchableOpacity>
-      </View>
-    </View>)}
+        {activeConversation?.membershipStatus === 'pending' && <View style={{ backgroundColor: COLORS.surface, padding: 14, gap: 8 }}>
+          <Text style={styles.resultName}>Message request</Text>
+          <Text style={styles.notice}>Accept this request to continue the conversation, or decline it to remove it from your requests.</Text>
+          <View style={styles.requestActions}>
+            <TouchableOpacity disabled={busyId === 'request'} onPress={() => void answerMessageRequest(true)} style={styles.acceptRequestButton}><Text style={styles.acceptRequestText}>Accept</Text></TouchableOpacity>
+            <TouchableOpacity disabled={busyId === 'request'} onPress={() => void answerMessageRequest(false)} style={styles.declineRequestButton}><Text style={styles.declineRequestText}>Decline</Text></TouchableOpacity>
+          </View>
+        </View>}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14, gap: 9, flexGrow: 1, justifyContent: 'flex-end' }}>
+          {threadLoading && <EmptyState title="Loading conversation" description="Recovering the latest messages." />}
+          {!threadLoading && !threadMessages.length && <EmptyState title="Say hello" description="This conversation is ready. Send the first message to begin." />}
+          {threadMessages.map(item => {
+            const mine = item.sender_id === currentUserId;
+            return <View key={item.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '86%', backgroundColor: mine ? '#173B70' : COLORS.surfaceRaised, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 10, gap: 5 }}>
+              {!mine && <Text style={{ color: '#A7C6FF', fontSize: 9, fontWeight: '800' }}>{item.sender?.display_name || item.sender?.username || 'CREOVA member'}</Text>}
+              <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>{item.body}</Text>
+              <Text style={{ color: '#A8B6CC', fontSize: 9, textAlign: 'right' }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+            </View>;
+          })}
+        </ScrollView>
+        {waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>Your message request has been sent. You can continue once the other participant accepts.</Text>}
+        {activeConversation?.membershipStatus === 'accepted' && !canCompose && !waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>This conversation is waiting for the invited participants to accept.</Text>}
+        {canCompose && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
+          <TextInput value={draft} onChangeText={setDraft} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
+          <TouchableOpacity disabled={!draft.trim() || busyId === 'send'} onPress={() => void submitMessage()} style={{ minHeight: 44, borderRadius: 22, paddingHorizontal: 16, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: !draft.trim() || busyId === 'send' ? 0.5 : 1 }}>
+            <Text style={styles.publishButtonText}>{busyId === 'send' ? '…' : 'Send'}</Text>
+          </TouchableOpacity>
+        </View>}
+        {!!message && <Text style={[styles.notice, { paddingHorizontal: 13, paddingBottom: 8 }]}>{message}</Text>}
+      </KeyboardAvoidingView>
+    </Modal>
   </View>;
 }
-
 function ProfileScreen() {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
@@ -1292,8 +1634,8 @@ function MainApp() {
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
-          <ScrollView style={styles.mainScroll} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
-            <View style={[styles.contentMax, isWide && styles.contentMaxWide]}>{renderScreen()}</View>
+          <ScrollView style={styles.mainScroll} scrollEnabled={activeTab !== 'Inbox'} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : activeTab === 'Inbox' ? [styles.mainScrollContent, { flexGrow: 1 }] : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
+            <View style={[styles.contentMax, isWide && styles.contentMaxWide, activeTab === 'Inbox' && { flex: 1 }]}>{renderScreen()}</View>
           </ScrollView>
         </View>
         {!isWide && <View style={[styles.bottomNav, { height: 66 + insets.bottom, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 8) }]}>
