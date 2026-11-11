@@ -154,7 +154,11 @@ export async function createConversation(input: {
   return data as string;
 }
 
-export async function sendMessage(conversationId: string, body: string): Promise<CreovaMessage> {
+export function createMessageClientId(): string {
+  return makeUuid();
+}
+
+export async function sendMessage(conversationId: string, body: string, clientMessageId = makeUuid()): Promise<CreovaMessage> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError) throw authError;
@@ -166,10 +170,26 @@ export async function sendMessage(conversationId: string, body: string): Promise
   const { data, error } = await client.from('conversation_messages').insert({
     conversation_id: conversationId,
     sender_id: auth.user.id,
-    client_message_id: makeUuid(),
+    client_message_id: clientMessageId,
     body: trimmed,
   }).select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)').single();
-  if (error) throw error;
+  if (error) {
+    if (error.code === '23505') {
+      const { data: existing, error: existingError } = await client.from('conversation_messages')
+        .select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+        .eq('sender_id', auth.user.id)
+        .eq('client_message_id', clientMessageId)
+        .maybeSingle();
+      if (existingError) throw existingError;
+      if (existing) {
+        return {
+          ...existing,
+          sender: Array.isArray(existing.sender) ? existing.sender[0] : existing.sender,
+        } as CreovaMessage;
+      }
+    }
+    throw error;
+  }
   return {
     ...data,
     sender: Array.isArray(data.sender) ? data.sender[0] : data.sender,
