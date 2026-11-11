@@ -116,6 +116,8 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   const [stories, setStories] = useState<CreovaStory[]>([]);
   const [storyMessage, setStoryMessage] = useState('');
   const [storyBusy, setStoryBusy] = useState(false);
+  const [selectedStoryAsset, setSelectedStoryAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [storyCaptionDraft, setStoryCaptionDraft] = useState('');
   const [activeStoryOwnerId, setActiveStoryOwnerId] = useState<string | null>(null);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
   const [storyReplyDraft, setStoryReplyDraft] = useState('');
@@ -140,8 +142,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   }
 
   async function chooseStory() {
-    if (storyBusy) return;
-    setStoryBusy(true);
+    if (storyBusy || selectedStoryAsset) return;
     setStoryMessage('');
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -164,14 +165,30 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         setStoryMessage('Story videos must be 60 seconds or shorter.');
         return;
       }
+      setSelectedStoryAsset(asset);
+      setStoryCaptionDraft('');
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not open your media library.');
+    }
+  }
+
+  async function publishSelectedStory() {
+    if (!selectedStoryAsset || storyBusy) return;
+    setStoryBusy(true);
+    setStoryMessage('');
+    try {
+      const asset = selectedStoryAsset;
       await publishStory({
         media: {
           uri: asset.uri,
           mimeType: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
           fileSize: asset.fileSize ?? null,
         },
+        caption: storyCaptionDraft,
         visibility: 'followers',
       });
+      setSelectedStoryAsset(null);
+      setStoryCaptionDraft('');
       await refreshStories();
       setStoryMessage('Your story is live for 24 hours.');
     } catch (error) {
@@ -180,7 +197,6 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
       setStoryBusy(false);
     }
   }
-
   async function openStoryGroup(ownerId: string) {
     const group = stories.filter(item => item.user_id === ownerId);
     if (!group.length) return;
@@ -189,11 +205,13 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
     setStoryReplyDraft('');
     setViewersOpen(false);
     setStoryViewers([]);
-    try {
-      await markStoryViewed(group[0].id);
-      setStories(items => items.map(item => item.id === group[0].id ? { ...item, viewedByMe: true } : item));
-    } catch (error) {
-      setStoryMessage(error instanceof Error ? error.message : 'Could not record this story view.');
+    if (ownerId !== currentUserId) {
+      try {
+        await markStoryViewed(group[0].id);
+        setStories(items => items.map(item => item.id === group[0].id ? { ...item, viewedByMe: true } : item));
+      } catch (error) {
+        setStoryMessage(error instanceof Error ? error.message : 'Could not record this story view.');
+      }
     }
   }
 
@@ -650,6 +668,24 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
                 </View>}
             <TouchableOpacity onPress={() => void advanceStory()} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: '#A9B4C8', fontSize: 10 }}>Tap to continue</Text></TouchableOpacity>
           </>}
+        </View>
+      </Modal>
+      <Modal visible={!!selectedStoryAsset} transparent animationType="slide" onRequestClose={() => { if (!storyBusy) { setSelectedStoryAsset(null); setStoryCaptionDraft(''); } }}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#101827', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 18, paddingBottom: 30, gap: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 17, fontWeight: '800' }}>Your story</Text>
+              <TouchableOpacity disabled={storyBusy} onPress={() => { setSelectedStoryAsset(null); setStoryCaptionDraft(''); }}><Text style={{ color: '#A9B4C8', fontSize: 22 }}>×</Text></TouchableOpacity>
+            </View>
+            {selectedStoryAsset?.type === 'video'
+              ? <View style={{ height: 150, borderRadius: 12, backgroundColor: '#05070D', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 30 }}>▶</Text><Text style={{ color: '#A9B4C8', fontSize: 11, marginTop: 5 }}>Video selected · up to 60 seconds</Text></View>
+              : selectedStoryAsset ? <Image source={{ uri: selectedStoryAsset.uri }} resizeMode="contain" style={{ width: '100%', height: 190, borderRadius: 12, backgroundColor: '#05070D' }} /> : null}
+            <TextInput value={storyCaptionDraft} onChangeText={setStoryCaptionDraft} maxLength={500} placeholder="Add a caption…" placeholderTextColor="#8794AA" multiline style={{ minHeight: 46, maxHeight: 110, borderRadius: 12, borderWidth: 1, borderColor: '#344158', padding: 12, color: '#FFFFFF', fontSize: 13 }} />
+            <Text style={{ color: '#A9B4C8', fontSize: 10, textAlign: 'right' }}>{storyCaptionDraft.length}/500 · Visible to your followers</Text>
+            <TouchableOpacity disabled={storyBusy || !selectedStoryAsset} onPress={() => void publishSelectedStory()} style={{ backgroundColor: COLORS.blue, borderRadius: 12, padding: 14, alignItems: 'center', opacity: storyBusy ? 0.55 : 1 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>{storyBusy ? 'Publishing…' : 'Share story'}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
     </View>
