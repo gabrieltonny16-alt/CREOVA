@@ -10,6 +10,9 @@ export type CreovaPostMedia = {
   width: number | null;
   height: number | null;
   position: number;
+  mediaType: 'image' | 'video';
+  mimeType: string;
+  durationSeconds: number | null;
 };
 
 export type CreovaFeedPost = {
@@ -45,7 +48,7 @@ type RawFeedPost = {
   visibility: CreovaFeedPost['visibility'];
   created_at: string;
   author: CreovaFeedPost['author'];
-  media: { id: string; object_path: string; width: number | null; height: number | null; position: number }[] | null;
+  media: { id: string; object_path: string; media_type: 'image' | 'video'; mime_type: string; duration_seconds: number | null; width: number | null; height: number | null; position: number }[] | null;
   likes: { user_id: string }[] | null;
   comments: { id: string }[] | null;
 };
@@ -90,40 +93,65 @@ export async function createPost(input: {
   await insertPost(input);
 }
 
-export async function createPostWithImages(input: {
+export type PostMediaInput = PostImageInput & {
+  mediaType?: 'image' | 'video';
+  durationSeconds?: number | null;
+};
+
+export async function createPostWithMedia(input: {
   caption: string;
   postType?: CreovaFeedPost['post_type'];
   visibility?: CreovaFeedPost['visibility'];
-  images: PostImageInput[];
+  media: PostMediaInput[];
 }): Promise<void> {
-  if (!input.images.length) throw new Error('Choose at least one photo.');
-  if (input.images.length > 10) throw new Error('A post can contain up to 10 photos.');
+  if (!input.media.length) throw new Error('Choose at least one photo or video.');
+  if (input.media.length > 10) throw new Error('A post can contain up to 10 media items.');
 
   const client = requireSupabase();
-  for (const image of input.images) {
-    const mimeType = image.mimeType.toLowerCase();
-    if (!(ALLOWED_IMAGE_TYPES as readonly string[]).includes(mimeType)) {
-      throw new Error('Use JPEG, PNG, or WebP photos.');
+  for (const item of input.media) {
+    const mediaType = item.mediaType ?? 'image';
+    const mimeType = item.mimeType.toLowerCase();
+    const allowed = mediaType === 'image'
+      ? ['image/jpeg', 'image/png', 'image/webp']
+      : ['video/mp4', 'video/quicktime', 'video/webm'];
+    if (!allowed.includes(mimeType)) {
+      throw new Error(mediaType === 'image'
+        ? 'Use JPEG, PNG, or WebP photos.'
+        : 'Use MP4, MOV, or WebM videos.');
     }
-    if (image.fileSize !== null && image.fileSize > MAX_IMAGE_BYTES) {
-      throw new Error('Each photo must be smaller than 10 MB.');
+    const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+    if (item.fileSize !== null && item.fileSize > maxBytes) {
+      throw new Error(mediaType === 'image'
+        ? 'Each photo must be smaller than 10 MB.'
+        : 'Each video must be smaller than 100 MB.');
+    }
+    if (mediaType === 'video' && item.durationSeconds != null && item.durationSeconds > 180) {
+      throw new Error('Feed videos must be 3 minutes or shorter.');
     }
   }
 
   const { id: postId, userId } = await insertPost(input);
   const uploadedPaths: string[] = [];
   try {
-    for (let position = 0; position < input.images.length; position += 1) {
-      const image = input.images[position];
-      const mimeType = image.mimeType.toLowerCase();
-      const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
-      const fileName = `image-${Date.now()}-${position}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
+    for (let position = 0; position < input.media.length; position += 1) {
+      const item = input.media[position];
+      const mediaType = item.mediaType ?? 'image';
+      const mimeType = item.mimeType.toLowerCase();
+      const extension = mimeType === 'image/png' ? 'png'
+        : mimeType === 'image/webp' ? 'webp'
+        : mimeType === 'video/quicktime' ? 'mov'
+        : mimeType === 'video/webm' ? 'webm'
+        : mediaType === 'video' ? 'mp4' : 'jpg';
+      const fileName = `${mediaType}-${Date.now()}-${position}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
       const objectPath = `${userId}/${postId}/${fileName}`;
 
-      const response = await fetch(image.uri);
-      if (!response.ok) throw new Error('Could not read a selected photo from your device.');
+      const response = await fetch(item.uri);
+      if (!response.ok) throw new Error('Could not read a selected media file from your device.');
       const fileBody = await response.arrayBuffer();
-      if (fileBody.byteLength > MAX_IMAGE_BYTES) throw new Error('Each photo must be smaller than 10 MB.');
+      const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+      if (fileBody.byteLength > maxBytes) {
+        throw new Error(mediaType === 'image' ? 'Each photo must be smaller than 10 MB.' : 'Each video must be smaller than 100 MB.');
+      }
 
       const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
         contentType: mimeType,
@@ -136,11 +164,12 @@ export async function createPostWithImages(input: {
       const { error: metadataError } = await client.from('post_media').insert({
         post_id: postId,
         object_path: objectPath,
-        media_type: 'image',
+        media_type: mediaType,
         mime_type: mimeType,
         file_size_bytes: fileBody.byteLength,
-        width: image.width || null,
-        height: image.height || null,
+        width: item.width || null,
+        height: item.height || null,
+        duration_seconds: mediaType === 'video' ? item.durationSeconds ?? null : null,
         position,
       });
       if (metadataError) throw metadataError;
@@ -150,6 +179,15 @@ export async function createPostWithImages(input: {
     await client.from('posts').delete().eq('id', postId);
     throw error;
   }
+}
+
+export async function createPostWithImages(input: {
+  caption: string;
+  postType?: CreovaFeedPost['post_type'];
+  visibility?: CreovaFeedPost['visibility'];
+  images: PostImageInput[];
+}): Promise<void> {
+  return createPostWithMedia({ ...input, media: input.images });
 }
 
 export async function createPostWithImage(input: {
@@ -185,7 +223,7 @@ async function hydrateFeedPosts(rawPosts: RawFeedPost[], userId: string): Promis
     author: post.author,
     media: (post.media ?? []).flatMap(item => {
       const signedUrl = signedByPath.get(item.object_path);
-      return signedUrl ? [{ id: item.id, signedUrl, width: item.width, height: item.height, position: item.position }] : [];
+      return signedUrl ? [{ id: item.id, signedUrl, width: item.width, height: item.height, position: item.position, mediaType: item.media_type, mimeType: item.mime_type, durationSeconds: item.duration_seconds }] : [];
     }).sort((a, b) => a.position - b.position),
     likeCount: post.likes?.length ?? 0,
     commentCount: post.comments?.length ?? 0,
@@ -205,7 +243,7 @@ type FeedRepostRow = {
   reposter: { id: string; username: string; display_name: string } | null;
 };
 
-const FEED_POST_SELECT = 'id, author_id, caption, is_pinned, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
+const FEED_POST_SELECT = 'id, author_id, caption, is_pinned, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, mime_type, duration_seconds, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
 
 export async function setPostPinned(postId: string, pinned: boolean): Promise<void> {
   const client = requireSupabase();
