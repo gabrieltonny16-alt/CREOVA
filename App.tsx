@@ -839,7 +839,7 @@ function ProfileScreen() {
           {post.media[0] ? <Image source={{ uri: post.media[0].signedUrl }} style={styles.profilePostImage} resizeMode="cover" /> : <View style={styles.profilePostTextTile}><Text style={styles.profilePostType}>{post.post_type.toUpperCase()}</Text><Text numberOfLines={4} style={styles.profilePostCaption}>{post.caption || 'CREOVA creation'}</Text></View>}
           <View style={styles.profilePostMetric}><Text style={styles.profilePostMetricText}>♥ {post.likeCount}</Text></View>
         </View>)}
-      </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
+      </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'GRID' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
     <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
       <View style={styles.profileMenuOverlay}>
