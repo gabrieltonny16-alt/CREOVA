@@ -623,7 +623,7 @@ function ProfileScreen() {
   const [savedPosts, setSavedPosts] = useState<CreovaFeedPost[]>([]);
   const [showSavedPosts, setShowSavedPosts] = useState(false);
   const [savedLoading, setSavedLoading] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'ANCHORS' | 'ITERATIONS'>('ALL');
+  const [filter, setFilter] = useState<'GRID' | 'ITERATIONS'>('GRID');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -752,14 +752,22 @@ function ProfileScreen() {
     ]);
   }
 
-  const visiblePosts = showSavedPosts ? savedPosts : posts.filter(post => filter === 'ALL'
-    || (filter === 'ANCHORS' ? post.post_type === 'anchor' : post.post_type === 'iteration'));
+  const visiblePosts = showSavedPosts ? savedPosts : posts.filter(post => filter === 'GRID' || post.post_type === 'iteration');
+
+  async function shareProfile() {
+    if (!profile) return;
+    try {
+      await Share.share({ message: `Check out @${profile.username} on CREOVA.` });
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not share your profile.');
+    }
+  }
 
   return <View style={styles.screenContent}>
     <View style={styles.profileTopBar}>
-      <Text style={styles.subheading}>@{profile?.username || 'Profile'}</Text>
+      <Text style={styles.profileTopHandle}>@{profile?.username || 'Profile'}</Text>
       <TouchableOpacity onPress={() => setMenuOpen(true)} style={styles.profileMenuButton} accessibilityRole="button" accessibilityLabel="Open profile menu">
-        <Text style={styles.profileMenuButtonText}>•••</Text>
+        <Text style={styles.profileMenuButtonText}>≡</Text>
       </TouchableOpacity>
     </View>
     {profile ? <>
@@ -782,9 +790,17 @@ function ProfileScreen() {
         </View>
         <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
         <View style={styles.profileStats}>
-          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.posts}</Text><Text style={styles.profileStatLabel}>POSTS</Text></View>
-          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></View>
-          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></View>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.posts}</Text><Text style={styles.profileStatLabel}>Posts</Text></View>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>Followers</Text></View>
+          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>Following</Text></View>
+        </View>
+        <View style={styles.profilePrimaryActions}>
+          <TouchableOpacity onPress={() => { setNotice(''); setEditing(value => !value); }} style={styles.profilePrimaryButton}>
+            <Text style={styles.profilePrimaryButtonText}>{editing ? 'Done editing' : 'Edit profile'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => void shareProfile()} style={styles.profileSecondaryButton}>
+            <Text style={styles.profileSecondaryButtonText}>Share profile</Text>
+          </TouchableOpacity>
         </View>
       </View>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
@@ -804,17 +820,17 @@ function ProfileScreen() {
           <Text style={styles.searchButtonText}>{saving ? 'Saving…' : 'Save changes'}</Text>
         </TouchableOpacity>
       </View>}
-      <View style={styles.profileContentHeading}>
-        <Text style={styles.subheading}>{showSavedPosts ? 'Saved posts' : 'Your work'}</Text>
-        <TouchableOpacity onPress={() => showSavedPosts ? setShowSavedPosts(false) : loadSavedPosts()} disabled={savedLoading} style={styles.refreshButton}>
-          <Text style={styles.refreshText}>{savedLoading ? 'Loading…' : showSavedPosts ? 'My work' : '▣ Saved posts'}</Text>
+      <View style={styles.profileFilterRow}>
+        <TouchableOpacity onPress={() => { setShowSavedPosts(false); setFilter('GRID'); }} style={[styles.profileFilter, !showSavedPosts && filter === 'GRID' && styles.profileFilterActive]}>
+          <Text style={[styles.profileFilterText, !showSavedPosts && filter === 'GRID' && styles.profileFilterTextActive]}>▦  Grid</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setShowSavedPosts(false); setFilter('ITERATIONS'); }} style={[styles.profileFilter, !showSavedPosts && filter === 'ITERATIONS' && styles.profileFilterActive]}>
+          <Text style={[styles.profileFilterText, !showSavedPosts && filter === 'ITERATIONS' && styles.profileFilterTextActive]}>⟳  Iterations</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { if (!showSavedPosts) void loadSavedPosts(); }} disabled={savedLoading} style={[styles.profileFilter, showSavedPosts && styles.profileFilterActive]}>
+          <Text style={[styles.profileFilterText, showSavedPosts && styles.profileFilterTextActive]}>{savedLoading ? 'Loading…' : '▣  Saved'}</Text>
         </TouchableOpacity>
       </View>
-      {!showSavedPosts && <View style={styles.profileFilterRow}>
-        {(['ALL', 'ANCHORS', 'ITERATIONS'] as const).map(value => <TouchableOpacity key={value} onPress={() => setFilter(value)} style={[styles.profileFilter, filter === value && styles.profileFilterActive]}>
-          <Text style={[styles.profileFilterText, filter === value && styles.profileFilterTextActive]}>{value}</Text>
-        </TouchableOpacity>)}
-      </View>}
       {savedLoading && showSavedPosts && <EmptyState title="Loading saved posts" description="Fetching the posts you bookmarked privately." />}
       {visiblePosts.length ? <View style={styles.profilePostGrid}>
         {visiblePosts.map(post => <View key={post.id} style={styles.profilePostTile}>
@@ -833,13 +849,16 @@ function ProfileScreen() {
             </TouchableOpacity>
           </View>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice(''); setEditing(true); }}>
-            <Text style={styles.profileMenuItemText}>Edit profile</Text><Text style={styles.profileMenuChevron}>›</Text>
+            <Text style={styles.profileMenuItemText}>Account settings</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); void loadSavedPosts(); }}>
             <Text style={styles.profileMenuItemText}>Saved posts</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice(''); setEditing(true); }}>
-            <Text style={styles.profileMenuItemText}>Privacy settings</Text><Text style={styles.profileMenuChevron}>›</Text>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice('Privacy controls are available in Edit profile for now.'); setEditing(true); }}>
+            <Text style={styles.profileMenuItemText}>Privacy & account</Text><Text style={styles.profileMenuChevron}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice('Creator analytics will appear here when profile analytics are implemented.'); }}>
+            <Text style={styles.profileMenuItemText}>Analytics</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
           <View style={styles.profileMenuDivider} />
           <TouchableOpacity style={styles.profileMenuSignOut} onPress={requestSignOut}>
@@ -884,9 +903,9 @@ function MainApp() {
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.app}>
-        <View style={[styles.topBar, isWide && styles.topBarWide]}>
+        {activeTab !== 'Profile' && <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
-        </View>
+        </View>}
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
             {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
@@ -894,7 +913,7 @@ function MainApp() {
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
-          <ScrollView style={styles.mainScroll} contentContainerStyle={styles.mainScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.mainScroll} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
             <View style={[styles.contentMax, isWide && styles.contentMaxWide]}>{renderScreen()}</View>
           </ScrollView>
         </View>
@@ -931,6 +950,7 @@ const styles = StyleSheet.create({
   activeText: { color: '#8DB8FF' },
   mainScroll: { flex: 1 },
   mainScrollContent: { paddingHorizontal: 12, paddingTop: 14, paddingBottom: 28 },
+  mainScrollContentProfile: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 28 },
   contentMax: { width: '100%', maxWidth: 640, alignSelf: 'center' },
   contentMaxWide: { maxWidth: 760 },
   screenContent: { gap: 12 },
@@ -995,14 +1015,20 @@ const styles = StyleSheet.create({
   publishButton: { minHeight: 46, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   publishButtonDisabled: { opacity: 0.45 },
   publishButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  profileHero: { paddingVertical: 8, paddingHorizontal: 0, borderRadius: 0, borderWidth: 0, backgroundColor: 'transparent', gap: 15 },
+  profileHero: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 0, borderWidth: 0, backgroundColor: 'transparent', gap: 15 },
   profileHeroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   profileIdentity: { flex: 1, gap: 5 },
   profileStats: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderTopWidth: 0, borderBottomWidth: 0 },
   profileStat: { alignItems: 'center', gap: 4 },
   profileStatNumber: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
   profileStatLabel: { color: COLORS.muted, fontSize: 10, letterSpacing: 0, fontWeight: '600' },
-  profileTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 42 },
+  profileTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 48, paddingHorizontal: 14 },
+  profileTopHandle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
+  profilePrimaryActions: { flexDirection: 'row', gap: 9, paddingHorizontal: 14, paddingBottom: 8 },
+  profilePrimaryButton: { flex: 1, minHeight: 40, borderRadius: 9, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center' },
+  profilePrimaryButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  profileSecondaryButton: { flex: 1, minHeight: 40, borderRadius: 9, backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
+  profileSecondaryButtonText: { color: COLORS.text, fontSize: 12, fontWeight: '800' },
   profileMenuButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
   profileMenuButtonText: { color: '#A7C6FF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
   profileMenuOverlay: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
@@ -1023,13 +1049,13 @@ const styles = StyleSheet.create({
   profileFeatureTitle: { color: '#A7C6FF', fontSize: 9, fontWeight: '900', letterSpacing: 1.1 },
   profileFeatureCopy: { color: COLORS.muted, fontSize: 10, lineHeight: 15 },
   profileContentHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  profileFilterRow: { flexDirection: 'row', gap: 8 },
-  profileFilter: { flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
-  profileFilterActive: { borderColor: COLORS.blue, backgroundColor: COLORS.accentSoft },
+  profileFilterRow: { flexDirection: 'row', gap: 0, marginTop: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border },
+  profileFilter: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 0, borderWidth: 0, borderBottomWidth: 2, borderBottomColor: 'transparent', backgroundColor: 'transparent' },
+  profileFilterActive: { borderBottomColor: COLORS.blue, backgroundColor: 'transparent' },
   profileFilterText: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
   profileFilterTextActive: { color: '#A7C6FF' },
   profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
-  profilePostTile: { width: '32.9%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: '#000000', borderWidth: 0 },
+  profilePostTile: { width: '33.333%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: '#000000', borderWidth: 0 },
   profilePostImage: { width: '100%', height: '100%' },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
