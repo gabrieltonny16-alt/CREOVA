@@ -204,6 +204,20 @@ type FeedRepostRow = {
 
 const FEED_POST_SELECT = 'id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, width, height, position), likes:post_likes(user_id), comments:post_comments(id)';
 
+export async function getMyPosts(): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view your profile.');
+
+  const { data, error } = await client.from('posts').select(FEED_POST_SELECT)
+    .eq('author_id', auth.user.id)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return hydrateFeedPosts((data ?? []) as unknown as RawFeedPost[], auth.user.id);
+}
+
 export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();

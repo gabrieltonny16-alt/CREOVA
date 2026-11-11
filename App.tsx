@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImages, getHomeFeed, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -637,7 +637,7 @@ function ProfileScreen() {
   async function loadProfile() {
     setError('');
     try {
-      const [value, stats, feed] = await Promise.all([getMyProfile(), getMyProfileCounts(), getHomeFeed()]);
+      const [value, stats, feed] = await Promise.all([getMyProfile(), getMyProfileCounts(), getMyPosts()]);
       setProfile(value);
       setDisplayName(value.display_name);
       setBio(value.bio);
@@ -856,9 +856,6 @@ function ProfileScreen() {
           </TouchableOpacity>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); void loadSavedPosts(); }}>
             <Text style={styles.profileMenuItemText}>Saved posts</Text><Text style={styles.profileMenuChevron}>›</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice('Privacy controls are available in Edit profile for now.'); setEditing(true); }}>
-            <Text style={styles.profileMenuItemText}>Privacy & account</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice('Creator analytics will appear here when profile analytics are implemented.'); }}>
             <Text style={styles.profileMenuItemText}>Analytics</Text><Text style={styles.profileMenuChevron}>›</Text>
