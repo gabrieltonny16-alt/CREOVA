@@ -775,12 +775,14 @@ function ProfileScreen() {
         <View style={styles.profileHeroTop}>
           <View style={styles.avatarColumn}>
             {profile.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} resizeMode="cover" /> : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>}
-            <TouchableOpacity disabled={avatarBusy} onPress={chooseAvatar} style={styles.avatarAction}>
-              <Text style={styles.avatarActionText}>{avatarBusy ? 'Uploading…' : profile.avatar_url ? 'Change photo' : 'Add photo'}</Text>
-            </TouchableOpacity>
-            {profile.avatar_url && <TouchableOpacity disabled={avatarBusy} onPress={deleteAvatar} style={styles.avatarRemoveAction}>
-              <Text style={styles.avatarRemoveText}>Remove</Text>
-            </TouchableOpacity>}
+            {editing && <>
+              <TouchableOpacity disabled={avatarBusy} onPress={chooseAvatar} style={styles.avatarAction}>
+                <Text style={styles.avatarActionText}>{avatarBusy ? 'Uploading…' : profile.avatar_url ? 'Change photo' : 'Add photo'}</Text>
+              </TouchableOpacity>
+              {profile.avatar_url && <TouchableOpacity disabled={avatarBusy} onPress={deleteAvatar} style={styles.avatarRemoveAction}>
+                <Text style={styles.avatarRemoveText}>Remove</Text>
+              </TouchableOpacity>}
+            </>}
           </View>
           <View style={styles.profileIdentity}>
             <Text style={styles.profileName}>{profile.display_name}</Text>
@@ -849,7 +851,7 @@ function ProfileScreen() {
             </TouchableOpacity>
           </View>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); setNotice(''); setEditing(true); }}>
-            <Text style={styles.profileMenuItemText}>Account settings</Text><Text style={styles.profileMenuChevron}>›</Text>
+            <Text style={styles.profileMenuItemText}>Account & privacy</Text><Text style={styles.profileMenuChevron}>›</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.profileMenuItem} onPress={() => { setMenuOpen(false); void loadSavedPosts(); }}>
             <Text style={styles.profileMenuItemText}>Saved posts</Text><Text style={styles.profileMenuChevron}>›</Text>
@@ -1052,9 +1054,9 @@ const styles = StyleSheet.create({
   profileFilterRow: { flexDirection: 'row', gap: 0, marginTop: 8, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border },
   profileFilter: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 13, borderRadius: 0, borderWidth: 0, borderBottomWidth: 2, borderBottomColor: 'transparent', backgroundColor: 'transparent' },
   profileFilterActive: { borderBottomColor: COLORS.blue, backgroundColor: 'transparent' },
-  profileFilterText: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
+  profileFilterText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
   profileFilterTextActive: { color: '#A7C6FF' },
-  profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
+  profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 0 },
   profilePostTile: { width: '33.333%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: '#000000', borderWidth: 0 },
   profilePostImage: { width: '100%', height: '100%' },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
