@@ -218,9 +218,14 @@ export async function sendMessage(
     const { error: uploadError } = await client.storage.from('creova-chat-media').upload(attachmentPath, bytes, {
       contentType: attachment.mimeType,
       cacheControl: '3600',
-      upsert: true,
+      upsert: false,
     });
-    if (uploadError) throw uploadError;
+    if (uploadError) {
+      // A retry may find the same deterministic object from an earlier uncertain send.
+      const { data: existingObject, error: lookupError } = await client.storage
+        .from('creova-chat-media').createSignedUrl(attachmentPath, 60);
+      if (lookupError || !existingObject?.signedUrl) throw uploadError;
+    }
   }
 
   const payload = {
