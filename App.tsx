@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
@@ -15,7 +16,7 @@ import {
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
 } from './src/features/messaging/messageService';
-import type { CreovaConversation, CreovaMessage } from './src/features/messaging/messageService';
+import type { CreovaConversation, CreovaMessage, MessageAttachmentInput } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -823,7 +824,23 @@ function CreateScreen() {
     </View>
   </View>;
 }
+function MessageVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, instance => { instance.loop = false; });
+  return <VideoView player={player} style={{ width: 230, height: 180, borderRadius: 10 }} contentFit="contain" nativeControls />;
+}
+
+function MessageAudio({ uri }: { uri: string }) {
+  const player = useAudioPlayer(uri);
+  return (
+    <TouchableOpacity onPress={() => player.play()} style={{ minWidth: 190, padding: 12, borderRadius: 12, backgroundColor: '#0D2445', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Text style={{ color: '#FFFFFF', fontSize: 18 }}>▶</Text>
+      <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>Play voice note</Text>
+    </TouchableOpacity>
+  );
+}
+
 function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+  const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [section, setSection] = useState<'Messages' | 'Notifications'>('Messages');
   const [messageSection, setMessageSection] = useState<'Chats' | 'Requests'>('Chats');
   const [notificationSection, setNotificationSection] = useState<'Activity' | 'Follow requests'>('Activity');
@@ -841,6 +858,8 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [draft, setDraft] = useState('');
   const [draftClientId, setDraftClientId] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<MessageAttachmentInput | null>(null);
+  const [recordingVoice, setRecordingVoice] = useState(false);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
@@ -896,6 +915,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     setThreadMessages([]);
     setDraft('');
     setDraftClientId(null);
+    setPendingAttachment(null);
     setThreadLoading(true);
     setConnectionStatus('CONNECTING');
     try {
@@ -978,16 +998,103 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
       : [...items, person]);
   }
 
+  async function chooseChatAttachment() {
+    if (busyId || !activeConversation) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setMessage('Allow photo-library access to attach a photo or video.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsMultipleSelection: false,
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg');
+      const kind = asset.type === 'video' ? 'video' : 'image';
+      if (!['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'video/webm'].includes(mimeType)) {
+        setMessage('Choose a JPEG, PNG, WebP, MP4, MOV or WebM file.');
+        return;
+      }
+      if (asset.fileSize != null && asset.fileSize > 25 * 1024 * 1024) {
+        setMessage('Chat attachments must be 25 MB or smaller.');
+        return;
+      }
+      if (kind === 'video' && asset.duration != null && asset.duration > 120000) {
+        setMessage('Chat videos must be 2 minutes or shorter.');
+        return;
+      }
+      setPendingAttachment({
+        uri: asset.uri,
+        kind,
+        fileName: asset.fileName || (kind === 'video' ? 'video.mp4' : 'photo.jpg'),
+        mimeType,
+        fileSize: asset.fileSize ?? 1,
+        durationMs: asset.duration ?? null,
+      });
+      setMessage('');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not choose this attachment.');
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (busyId || recordingVoice || !activeConversation) return;
+    try {
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setMessage('Allow microphone access to record a voice note.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await voiceRecorder.prepareToRecordAsync();
+      voiceRecorder.record();
+      setRecordingVoice(true);
+      setMessage('Recording voice note… tap Stop when finished (maximum 2 minutes).');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not start voice recording.');
+    }
+  }
+
+  async function stopVoiceRecording() {
+    if (!recordingVoice) return;
+    try {
+      await voiceRecorder.stop();
+      const status = voiceRecorder.getStatus();
+      const uri = voiceRecorder.uri;
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      setRecordingVoice(false);
+      if (!uri) throw new Error('The voice recording was not saved. Please try again.');
+      if (status.durationMillis > 120000) throw new Error('Voice notes must be 2 minutes or shorter.');
+      setPendingAttachment({
+        uri,
+        kind: 'audio',
+        fileName: 'voice-note.m4a',
+        mimeType: 'audio/mp4',
+        fileSize: Math.max(1, status.fileSize ?? 1),
+        durationMs: Math.max(1, status.durationMillis),
+      });
+      setMessage('Voice note ready. Send it when you are ready.');
+    } catch (error) {
+      setRecordingVoice(false);
+      setMessage(error instanceof Error ? error.message : 'Could not finish the voice note.');
+    }
+  }
+
   async function submitMessage() {
-    if (!activeConversation || !draft.trim() || busyId) return;
+    if (!activeConversation || (!draft.trim() && !pendingAttachment) || busyId || recordingVoice) return;
     setBusyId('send');
     setMessage('');
     try {
       const clientMessageId = draftClientId ?? createMessageClientId();
       setDraftClientId(clientMessageId);
-      const sent = await sendMessage(activeConversation.id, draft, clientMessageId);
+      const sent = await sendMessage(activeConversation.id, draft, clientMessageId, pendingAttachment ?? undefined);
       setThreadMessages(items => items.some(item => item.id === sent.id) ? items : [...items, sent]);
       setDraft('');
+      setPendingAttachment(null);
       setDraftClientId(null);
       await loadMessaging();
       const updated = (await getMyConversations()).find(item => item.id === activeConversation.id);
@@ -1152,6 +1259,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
             ? item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url
             : item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url;
           const preview = item.lastMessage?.body
+            || (item.lastMessage?.attachment_type === 'image' ? '📷 Photo' : item.lastMessage?.attachment_type === 'video' ? '▶ Video' : item.lastMessage?.attachment_type === 'audio' ? '🎤 Voice note' : null)
             || (item.membershipStatus === 'pending' ? 'Message request · Review before replying' : item.participants.some(person => person.membership_status === 'pending') ? 'Waiting for people to accept' : 'No messages yet');
           return <TouchableOpacity key={item.id} onPress={() => void openConversation(item)} style={[styles.requestCard, { backgroundColor: item.unreadCount ? '#101827' : COLORS.surface, borderColor: item.unreadCount ? '#355B9C' : COLORS.border }]}>
             <View style={styles.resultAvatar}>
@@ -1281,7 +1389,11 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
             const mine = item.sender_id === currentUserId;
             return <View key={item.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '86%', backgroundColor: mine ? '#173B70' : COLORS.surfaceRaised, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 10, gap: 5 }}>
               {!mine && <Text style={{ color: '#A7C6FF', fontSize: 9, fontWeight: '800' }}>{item.sender?.display_name || item.sender?.username || 'CREOVA member'}</Text>}
-              <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>{item.body}</Text>
+              {!!item.body && <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>{item.body}</Text>}
+              {!!item.attachmentUrl && item.attachment_type === 'image' && <Image source={{ uri: item.attachmentUrl }} style={{ width: 230, height: 210, borderRadius: 10 }} resizeMode="cover" />}
+              {!!item.attachmentUrl && item.attachment_type === 'video' && <MessageVideo uri={item.attachmentUrl} />}
+              {!!item.attachmentUrl && item.attachment_type === 'audio' && <MessageAudio uri={item.attachmentUrl} />}
+              {!!item.attachment_path && !item.attachmentUrl && <Text style={{ color: COLORS.muted, fontSize: 11 }}>Attachment unavailable. Refresh to try again.</Text>}
               <Text style={{ color: '#A8B6CC', fontSize: 9, textAlign: 'right' }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
             </View>;
           })}
@@ -1289,11 +1401,24 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
         {declinedOthers && <Text style={[styles.notice, { padding: 13 }]}>One or more invited participants declined this conversation. Sending is paused.</Text>}
         {waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>Your message request has been sent. You can continue once the other participant accepts.</Text>}
         {activeConversation?.membershipStatus === 'accepted' && !canCompose && !waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>This conversation is waiting for the invited participants to accept.</Text>}
-        {canCompose && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
-          <TextInput value={draft} onChangeText={value => { if (value !== draft) setDraftClientId(null); setDraft(value); }} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
-          <TouchableOpacity disabled={!draft.trim() || busyId === 'send'} onPress={() => void submitMessage()} style={{ minHeight: 44, borderRadius: 22, paddingHorizontal: 16, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: !draft.trim() || busyId === 'send' ? 0.5 : 1 }}>
-            <Text style={styles.publishButtonText}>{busyId === 'send' ? '…' : 'Send'}</Text>
-          </TouchableOpacity>
+        {canCompose && <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 8 }}>
+          {!!pendingAttachment && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.surfaceRaised, borderRadius: 10, padding: 9 }}>
+            <Text style={{ color: COLORS.text, fontSize: 11, flex: 1 }} numberOfLines={1}>Ready: {pendingAttachment.kind === 'audio' ? 'Voice note' : pendingAttachment.fileName}</Text>
+            <TouchableOpacity onPress={() => setPendingAttachment(null)}><Text style={{ color: '#FF9B9B', fontWeight: '800', paddingHorizontal: 8 }}>Remove</Text></TouchableOpacity>
+          </View>}
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 7 }}>
+            <TouchableOpacity disabled={!!busyId || recordingVoice} onPress={() => void chooseChatAttachment()} style={{ width: 40, height: 44, borderRadius: 20, backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: COLORS.text, fontSize: 21 }}>＋</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={!!busyId || !!pendingAttachment} onPress={() => void (recordingVoice ? stopVoiceRecording() : startVoiceRecording())} style={{ width: 40, height: 44, borderRadius: 20, backgroundColor: recordingVoice ? '#8B2635' : COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: COLORS.text, fontSize: 17 }}>{recordingVoice ? '■' : '●'}</Text>
+            </TouchableOpacity>
+            <TextInput value={draft} onChangeText={value => { if (value !== draft) setDraftClientId(null); setDraft(value); }} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
+            <TouchableOpacity disabled={(!draft.trim() && !pendingAttachment) || busyId === 'send' || recordingVoice} onPress={() => void submitMessage()} style={{ minHeight: 44, borderRadius: 22, paddingHorizontal: 14, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: (!draft.trim() && !pendingAttachment) || busyId === 'send' || recordingVoice ? 0.5 : 1 }}>
+              <Text style={styles.publishButtonText}>{busyId === 'send' ? '…' : 'Send'}</Text>
+            </TouchableOpacity>
+          </View>
+          {recordingVoice && <Text style={{ color: '#FF9B9B', fontSize: 11 }}>Recording… tap the red stop button to finish.</Text>}
         </View>}
         {!!message && <Text style={[styles.notice, { paddingHorizontal: 13, paddingBottom: 8 }]}>{message}</Text>}
       </KeyboardAvoidingView>
