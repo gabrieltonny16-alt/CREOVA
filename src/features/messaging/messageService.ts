@@ -278,6 +278,11 @@ export function subscribeToInboxChanges(onChange: () => void): () => void {
       schema: 'public',
       table: 'conversation_members',
     }, onChange)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'notifications',
+    }, onChange)
     .subscribe();
   return () => { void client.removeChannel(channel); };
 }
