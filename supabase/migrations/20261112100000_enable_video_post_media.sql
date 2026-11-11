@@ -2,7 +2,7 @@
 -- Existing object paths and access policies remain unchanged.
 
 update storage.buckets
-set file_size_limit = 104857600,
+set file_size_limit = 52428800,
     allowed_mime_types = array[
       'image/jpeg',
       'image/png',
