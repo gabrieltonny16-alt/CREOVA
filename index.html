@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#070914">
+  <meta name="description" content="CREOVA — Create. Connect. Evolve. A social platform for people, creativity and community.">
+  <title>CREOVA — Create. Connect. Evolve.</title>
+  <style>
+    :root{color-scheme:dark;--bg:#070914;--panel:#10172a;--cyan:#00d2ff;--blue:#2868ff;--pink:#d926ef;--muted:#aab4ca}
+    *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#17275d 0,transparent 48%),var(--bg);color:#fff;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    .wrap{width:min(1080px,calc(100% - 40px));margin:auto}.nav{height:82px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #26314b}
+    .brand{font-size:24px;font-weight:900;letter-spacing:.16em}.brand span{color:var(--cyan)}.nav a,.btn{color:#fff;text-decoration:none;font-weight:700}.nav a{color:#c8d3e8}
+    .hero{min-height:610px;display:grid;align-items:center;text-align:center;padding:90px 0 100px}.mark{width:94px;height:94px;border-radius:28px;margin:0 auto 26px;background:linear-gradient(140deg,var(--cyan),var(--blue) 55%,var(--pink));padding:2px;box-shadow:0 0 42px #176aff55}
+    .mark div{height:100%;border-radius:26px;background:#080b19;display:grid;place-items:center;font-size:54px;font-weight:900;font-style:italic}
+    h1{font-size:clamp(48px,9vw,88px);line-height:1;margin:0;letter-spacing:.12em}h1 span{color:var(--cyan)}.tag{letter-spacing:.22em;color:#c0c9dc;font-size:13px;font-weight:800;margin:20px 0 30px}
+    .lead{max-width:650px;margin:0 auto;color:#b7c2d8;font-size:18px;line-height:1.7}.actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}.btn{padding:14px 24px;border-radius:14px;background:linear-gradient(100deg,#087fe8,#5548ee 65%,#bd28df);box-shadow:0 8px 30px #245dff35}.btn.secondary{background:#111a2e;border:1px solid #293958;box-shadow:none}
+    .section{padding:34px 0 90px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.tile{padding:25px;border:1px solid #202b45;background:#0c1222;border-radius:20px}.tile h2{font-size:17px;margin:0 0 10px}.tile p{margin:0;color:var(--muted);line-height:1.65;font-size:14px}.dot{width:9px;height:9px;border-radius:50%;background:var(--cyan);box-shadow:0 0 16px var(--cyan);margin-bottom:18px}
+    footer{border-top:1px solid #202b45;padding:24px 0 36px;color:#8491aa;font-size:13px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+    @media(max-width:700px){.hero{min-height:560px;padding:70px 0}.grid{grid-template-columns:1fr}.nav{height:70px}.lead{font-size:16px}}
+  </style>
+</head>
+<body>
+  <header class="wrap nav"><div class="brand">CREO<span>V</span>A</div><a href="#about">About CREOVA</a></header>
+  <main>
+    <section class="wrap hero">
+      <div>
+        <div class="mark" aria-hidden="true"><div>C</div></div>
+        <h1>CREO<span>V</span>A</h1>
+        <div class="tag">CREATE. CONNECT. EVOLVE.</div>
+        <p class="lead">A space to discover people, share what moves you, and stay connected to the creativity happening around you. CREOVA is being built with creators and communities in mind.</p>
+        <div class="actions"><a class="btn" href="#about">Discover CREOVA</a><a class="btn secondary" href="https://github.com/gabrieltonny16-alt/CREOVA">Project updates</a></div>
+      </div>
+    </section>
+    <section class="wrap section" id="about">
+      <div class="grid">
+        <article class="tile"><div class="dot"></div><h2>Create</h2><p>Share your ideas, moments and creative work with your community.</p></article>
+        <article class="tile"><div class="dot" style="background:#3988ff;box-shadow:0 0 16px #3988ff"></div><h2>Connect</h2><p>Find people, build conversations and take part in communities.</p></article>
+        <article class="tile"><div class="dot" style="background:#d926ef;box-shadow:0 0 16px #d926ef"></div><h2>Evolve</h2><p>Discover new perspectives and let your creativity grow.</p></article>
+      </div>
+    </section>
+  </main>
+  <footer class="wrap"><span>© <span id="year"></span> CREOVA</span><span>Create. Connect. Evolve.</span></footer>
+  <script>document.getElementById('year').textContent=new Date().getFullYear();</script>
+</body>
+</html>
