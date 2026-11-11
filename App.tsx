@@ -1051,7 +1051,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
       }
       await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await voiceRecorder.prepareToRecordAsync();
-      voiceRecorder.record();
+      voiceRecorder.record({ forDuration: 120 });
       setRecordingVoice(true);
       setMessage('Recording voice note… tap Stop when finished (maximum 2 minutes).');
     } catch (error) {
