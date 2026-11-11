@@ -1096,9 +1096,9 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const pendingOthers = activeConversation?.participants.some(person =>
     person.user_id !== currentUserId && person.membership_status === 'pending'
   ) ?? false;
-  const declinedOthers = activeConversation?.participants.some(person =>
+  const declinedOthers = activeConversation?.kind === 'direct' && (activeConversation.participants.some(person =>
     person.user_id !== currentUserId && person.membership_status === 'declined'
-  ) ?? false;
+  ) ?? false);
   const canCompose = !!activeConversation
     && activeConversation.membershipStatus === 'accepted'
     && !declinedOthers
