@@ -11,13 +11,29 @@ export type MessageParticipant = {
   } | null;
 };
 
+export type MessageAttachmentInput = {
+  uri: string;
+  kind: 'image' | 'video' | 'audio';
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  durationMs?: number | null;
+};
+
 export type CreovaMessage = {
   id: string;
   conversation_id: string;
   sender_id: string;
   client_message_id: string;
-  body: string;
+  body: string | null;
   created_at: string;
+  attachment_type: 'image' | 'video' | 'audio' | null;
+  attachment_path: string | null;
+  attachment_name: string | null;
+  attachment_mime_type: string | null;
+  attachment_size: number | null;
+  attachment_duration_ms: number | null;
+  attachmentUrl?: string | null;
   sender: {
     username: string;
     display_name: string;
@@ -71,7 +87,7 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
       .select('conversation_id, user_id, role, membership_status, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids),
     client.from('conversation_messages')
-      .select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+      .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids)
       .order('created_at', { ascending: false })
       .limit(500),
@@ -126,15 +142,27 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
 }
 
 export async function getConversationMessages(conversationId: string): Promise<CreovaMessage[]> {
-  const { data, error } = await requireSupabase()
+  const client = requireSupabase();
+  const { data, error } = await client
     .from('conversation_messages')
-    .select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
     .limit(500);
   if (error) throw error;
-  return (data ?? []).map((row: any) => ({
+  const rows = (data ?? []) as any[];
+  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const signedByPath = new Map<string, string>();
+  if (paths.length) {
+    const { data: signed, error: signedError } = await client.storage.from('creova-chat-media').createSignedUrls(paths, 3600);
+    if (signedError) throw signedError;
+    (signed ?? []).forEach(item => {
+      if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+    });
+  }
+  return rows.map(row => ({
     ...row,
+    attachmentUrl: row.attachment_path ? signedByPath.get(row.attachment_path) ?? null : null,
     sender: Array.isArray(row.sender) ? row.sender[0] : row.sender,
   })) as CreovaMessage[];
 }
@@ -158,40 +186,87 @@ export function createMessageClientId(): string {
   return makeUuid();
 }
 
-export async function sendMessage(conversationId: string, body: string, clientMessageId = makeUuid()): Promise<CreovaMessage> {
+export async function sendMessage(
+  conversationId: string,
+  body: string,
+  clientMessageId = makeUuid(),
+  attachment?: MessageAttachmentInput,
+): Promise<CreovaMessage> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
   if (authError) throw authError;
   if (!auth.user) throw new Error('Sign in to send a message.');
   const trimmed = body.trim();
-  if (!trimmed) throw new Error('Write a message first.');
+  if (!trimmed && !attachment) throw new Error('Write a message or attach media first.');
   if (trimmed.length > 5000) throw new Error('Messages must be 5,000 characters or fewer.');
+  if (attachment && (attachment.fileSize < 1 || attachment.fileSize > 25 * 1024 * 1024)) {
+    throw new Error('Chat attachments must be 25 MB or smaller.');
+  }
+  if (attachment?.durationMs && attachment.durationMs > 120000) {
+    throw new Error('Voice notes and videos must be 2 minutes or shorter.');
+  }
 
-  const { data, error } = await client.from('conversation_messages').insert({
+  let attachmentPath: string | null = null;
+  if (attachment) {
+    const safeName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
+    const extension = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
+    attachmentPath = `${conversationId}/${auth.user.id}/${clientMessageId}.${extension}`;
+    const response = await fetch(attachment.uri);
+    if (!response.ok) throw new Error('Could not read the selected attachment from your device.');
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > 25 * 1024 * 1024) throw new Error('Chat attachments must be 25 MB or smaller.');
+    const { error: uploadError } = await client.storage.from('creova-chat-media').upload(attachmentPath, bytes, {
+      contentType: attachment.mimeType,
+      cacheControl: '3600',
+      upsert: true,
+    });
+    if (uploadError) throw uploadError;
+  }
+
+  const payload = {
     conversation_id: conversationId,
     sender_id: auth.user.id,
     client_message_id: clientMessageId,
-    body: trimmed,
-  }).select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)').single();
+    body: trimmed || null,
+    attachment_type: attachment?.kind ?? null,
+    attachment_path: attachmentPath,
+    attachment_name: attachment?.fileName ?? null,
+    attachment_mime_type: attachment?.mimeType ?? null,
+    attachment_size: attachment?.fileSize ?? null,
+    attachment_duration_ms: attachment?.durationMs ?? null,
+  };
+  const { data, error } = await client.from('conversation_messages').insert(payload)
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)').single();
   if (error) {
     if (error.code === '23505') {
       const { data: existing, error: existingError } = await client.from('conversation_messages')
-        .select('id, conversation_id, sender_id, client_message_id, body, created_at, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+        .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
         .eq('sender_id', auth.user.id)
         .eq('client_message_id', clientMessageId)
         .maybeSingle();
       if (existingError) throw existingError;
       if (existing) {
+        const signed = existing.attachment_path
+          ? await client.storage.from('creova-chat-media').createSignedUrl(existing.attachment_path, 3600)
+          : null;
+        if (signed?.error) throw signed.error;
         return {
           ...existing,
+          attachmentUrl: signed?.data?.signedUrl ?? null,
           sender: Array.isArray(existing.sender) ? existing.sender[0] : existing.sender,
         } as CreovaMessage;
       }
     }
+    if (attachmentPath) await client.storage.from('creova-chat-media').remove([attachmentPath]);
     throw error;
   }
+  const signed = data.attachment_path
+    ? await client.storage.from('creova-chat-media').createSignedUrl(data.attachment_path, 3600)
+    : null;
+  if (signed?.error) throw signed.error;
   return {
     ...data,
+    attachmentUrl: signed?.data?.signedUrl ?? null,
     sender: Array.isArray(data.sender) ? data.sender[0] : data.sender,
   } as CreovaMessage;
 }
