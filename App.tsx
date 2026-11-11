@@ -29,9 +29,9 @@ import {
 type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
 
 const COLORS = {
-  background: '#0B0D10',
-  surface: '#111A2B',
-  surfaceRaised: '#17243A',
+  background: '#000000',
+  surface: '#101827',
+  surfaceRaised: '#192840',
   border: '#263650',
   text: '#F5F7FF',
   muted: '#9AAAC4',
@@ -249,7 +249,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
             </View>
             <View style={styles.postAuthor}>
               <Text style={styles.resultName}>{post.author?.display_name || 'CREOVA member'}</Text>
-              <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type.toUpperCase()} · {new Date(post.created_at).toLocaleDateString()}</Text>
+              <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type} · {new Date(post.created_at).toLocaleDateString()}</Text>
             </View>
           </View>
           {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={styles.feedImage} resizeMode="cover" />)}
@@ -259,23 +259,23 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
               <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
             </TouchableOpacity>
             <TouchableOpacity onPress={() => openComments(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={`View ${post.commentCount} comments`}>
-              <Text style={styles.postActionText}>▢ {post.commentCount} Comments</Text>
+              <Text style={styles.postActionText}>▢ {post.commentCount}</Text>
             </TouchableOpacity>
             <TouchableOpacity disabled={!!postActionBusy} onPress={() => repostPost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={post.repostedByMe ? 'Remove repost' : 'Repost this post'}>
               <Text style={[styles.postActionText, post.repostedByMe && styles.postLiked]}>↻ {post.repostCount}</Text>
             </TouchableOpacity>
             <TouchableOpacity disabled={!!postActionBusy} onPress={() => sharePost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel="Share this post">
-              <Text style={styles.postActionText}>↗ Share</Text>
+              <Text style={styles.postActionText}>↗</Text>
             </TouchableOpacity>
             <TouchableOpacity disabled={!!postActionBusy} onPress={() => savePost(post)} style={styles.postAction} accessibilityRole="button" accessibilityLabel={post.savedByMe ? 'Remove from saved posts' : 'Save this post'}>
-              <Text style={[styles.postActionText, post.savedByMe && styles.postLiked]}>{post.savedByMe ? '▣ Saved' : '▢ Save'}</Text>
+              <Text style={[styles.postActionText, post.savedByMe && styles.postLiked]}>{post.savedByMe ? '▮' : '▯'}</Text>
             </TouchableOpacity>
           </View>
         </View>
       ))}
       <Modal visible={!!commentPost} transparent animationType="slide" onRequestClose={() => setCommentPost(null)}>
         <KeyboardAvoidingView
-          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#020611B8' }}
+          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: '#000000B8' }}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={{ maxHeight: '86%', minHeight: '55%', backgroundColor: COLORS.background, borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, borderColor: COLORS.border, padding: 18, gap: 12 }}>
@@ -777,7 +777,7 @@ function ProfileScreen() {
           <View style={styles.profileIdentity}>
             <Text style={styles.profileName}>{profile.display_name}</Text>
             <Text style={styles.profileHandle}>@{profile.username}</Text>
-            <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'CREATOR ACCOUNT'}</Text>
+            <Text style={styles.profilePrivacy}>{profile.is_private ? 'Private account' : 'Creator account'}</Text>
           </View>
         </View>
         <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
@@ -953,7 +953,7 @@ const styles = StyleSheet.create({
   feedHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   subheading: { color: COLORS.text, fontSize: 18, fontWeight: '800' },
   mutedSmall: { color: COLORS.muted, fontSize: 8, letterSpacing: 1.2, fontWeight: '700' },
-  emptyCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, padding: 23, alignItems: 'center', gap: 10 },
+  emptyCard: { backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, padding: 23, alignItems: 'center', gap: 10 },
   emptyIcon: { width: 42, height: 42, borderRadius: 15, backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
   emptyIconText: { color: '#9ABEFF', fontSize: 22 },
   emptyTitle: { color: COLORS.text, fontSize: 16, fontWeight: '800', textAlign: 'center' },
@@ -967,20 +967,20 @@ const styles = StyleSheet.create({
   notice: { color: COLORS.muted, fontSize: 11, lineHeight: 18, paddingHorizontal: 3 },
   refreshButton: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 11, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
   refreshText: { color: '#A7C6FF', fontSize: 11, fontWeight: '800' },
-  postCard: { backgroundColor: 'transparent', borderWidth: 0, borderBottomWidth: 1, borderBottomColor: COLORS.border, borderRadius: 0, padding: 0, paddingBottom: 16, gap: 10 },
+  postCard: { backgroundColor: 'transparent', borderWidth: 0, borderRadius: 0, padding: 0, paddingBottom: 20, gap: 10 },
   postHeader: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  postAuthor: { flex: 1, gap: 4 },
-  postCaption: { color: COLORS.text, fontSize: 14, lineHeight: 22 },
-  feedImage: { width: '100%', aspectRatio: 1, borderRadius: 0, backgroundColor: '#0B1322' },
+  postAuthor: { flex: 1, gap: 2 },
+  postCaption: { color: COLORS.text, fontSize: 14, lineHeight: 21, fontWeight: '400' },
+  feedImage: { width: '100%', aspectRatio: 1, borderRadius: 0, backgroundColor: '#000000' },
   imagePickButton: { minHeight: 43, borderRadius: 11, borderWidth: 1, borderColor: '#355B9C', backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
   imagePickButtonText: { color: '#A7C6FF', fontSize: 12, fontWeight: '800' },
   imagePreviewWrap: { gap: 8 },
-  imagePreview: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#0B1322' },
+  imagePreview: { width: '100%', aspectRatio: 1, borderRadius: 0, backgroundColor: '#000000' },
   removeImageButton: { alignSelf: 'flex-start', paddingVertical: 5, paddingHorizontal: 3 },
   removeImageText: { color: '#FF91A9', fontSize: 11, fontWeight: '700' },
-  postActions: { flexDirection: 'row', alignItems: 'center', gap: 20, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 },
+  postActions: { flexDirection: 'row', alignItems: 'center', gap: 22, paddingTop: 4 },
   postAction: { paddingVertical: 3 },
-  postActionText: { color: COLORS.muted, fontSize: 12, fontWeight: '700' },
+  postActionText: { color: COLORS.muted, fontSize: 19, fontWeight: '400', minWidth: 22 },
   postLiked: { color: '#FF6B91' },
   composerCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 19, padding: 17, gap: 12 },
   composerTitle: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
@@ -995,18 +995,18 @@ const styles = StyleSheet.create({
   publishButton: { minHeight: 46, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   publishButtonDisabled: { opacity: 0.45 },
   publishButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  profileHero: { padding: 18, borderRadius: 21, borderWidth: 1, borderColor: '#35517D', backgroundColor: '#111F38', gap: 15 },
+  profileHero: { paddingVertical: 8, paddingHorizontal: 0, borderRadius: 0, borderWidth: 0, backgroundColor: 'transparent', gap: 15 },
   profileHeroTop: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   profileIdentity: { flex: 1, gap: 5 },
-  profileStats: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderTopWidth: 1, borderBottomWidth: 1, borderColor: '#2B4165' },
+  profileStats: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 14, borderTopWidth: 0, borderBottomWidth: 0 },
   profileStat: { alignItems: 'center', gap: 4 },
   profileStatNumber: { color: COLORS.text, fontSize: 18, fontWeight: '900' },
-  profileStatLabel: { color: COLORS.muted, fontSize: 8, letterSpacing: 1, fontWeight: '800' },
+  profileStatLabel: { color: COLORS.muted, fontSize: 10, letterSpacing: 0, fontWeight: '600' },
   profileTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 42 },
   profileMenuButton: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
   profileMenuButtonText: { color: '#A7C6FF', fontSize: 18, fontWeight: '900', letterSpacing: 1 },
   profileMenuOverlay: { flex: 1, flexDirection: 'row', justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.58)' },
-  profileMenuScrim: { ...StyleSheet.absoluteFillObject },
+  profileMenuScrim: { ...StyleSheet.absoluteFill },
   profileMenuDrawer: { width: '82%', maxWidth: 340, height: '100%', backgroundColor: COLORS.surface, borderLeftWidth: 1, borderLeftColor: COLORS.border, paddingHorizontal: 20, paddingTop: 54, gap: 4 },
   profileMenuHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 18, borderBottomWidth: 1, borderBottomColor: COLORS.border, marginBottom: 8 },
   profileMenuTitle: { color: COLORS.text, fontSize: 20, fontWeight: '900' },
@@ -1028,8 +1028,8 @@ const styles = StyleSheet.create({
   profileFilterActive: { borderColor: COLORS.blue, backgroundColor: COLORS.accentSoft },
   profileFilterText: { color: COLORS.muted, fontSize: 9, fontWeight: '800' },
   profileFilterTextActive: { color: '#A7C6FF' },
-  profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  profilePostTile: { width: '32.8%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 0 },
+  profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
+  profilePostTile: { width: '32.9%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: '#000000', borderWidth: 0 },
   profilePostImage: { width: '100%', height: '100%' },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
@@ -1054,11 +1054,11 @@ const styles = StyleSheet.create({
   searchButton: { minWidth: 82, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 14 },
   searchButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   resultRow: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: 15, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
-  resultAvatar: { width: 42, height: 42, borderRadius: 15, backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  resultAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' },
   resultAvatarText: { color: '#A7C6FF', fontSize: 17, fontWeight: '900' },
   resultInfo: { flex: 1, gap: 4 },
-  resultName: { color: COLORS.text, fontSize: 13, fontWeight: '800' },
-  resultHandle: { color: COLORS.muted, fontSize: 10 },
+  resultName: { color: COLORS.text, fontSize: 13, fontWeight: '700' },
+  resultHandle: { color: COLORS.muted, fontSize: 11, fontWeight: '400' },
   requestCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 15, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
   requestAvatarImage: { width: 42, height: 42, borderRadius: 15 },
   requestActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -1070,7 +1070,7 @@ const styles = StyleSheet.create({
   followButton: { backgroundColor: COLORS.accentSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   followButtonText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   profileHandle: { color: '#A7C6FF', fontSize: 12, fontWeight: '700' },
-  profilePrivacy: { color: COLORS.muted, fontSize: 9, letterSpacing: 1.4, fontWeight: '800' },
+  profilePrivacy: { color: COLORS.muted, fontSize: 11, letterSpacing: 0, fontWeight: '400' },
   profileEditor: { width: '100%', gap: 10, marginTop: 8 },
   editLabel: { color: '#AFC5E8', fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
   editInput: { minHeight: 46, borderRadius: 11, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0B1322', color: COLORS.text, paddingHorizontal: 12, fontSize: 13 },
