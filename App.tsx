@@ -7,7 +7,7 @@ import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, foll
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
-import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
+import { createPost, createPostWithImages, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
@@ -94,6 +94,7 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
 
 function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: string | null; onSharedPostHandled: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
+  const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('following');
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyPost, setBusyPost] = useState('');
@@ -337,7 +338,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
     setLoading(true);
     setMessage('');
     try {
-      setPosts(await getHomeFeed());
+      setPosts(await (feedMode === 'following' ? getHomeFeed() : getForYouFeed()));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load your feed.');
     } finally {
@@ -346,8 +347,8 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   }
 
   useEffect(() => {
-    loadFeed();
-  }, []);
+    void loadFeed();
+  }, [feedMode]);
 
   useEffect(() => {
     if (!sharedPostId) return;
@@ -459,13 +460,32 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         </ScrollView>
         {!!storyMessage && <Text style={[styles.notice, { marginTop: 8 }]}>{storyMessage}</Text>}
       </View>
-      <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5 }]}>
-        <Text style={styles.subheading}>Following</Text>
-        <Text style={styles.resultHandle}>For You</Text>
+      <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5, gap: 8 }]}>
+        {(['following', 'for-you'] as const).map(mode => {
+          const active = feedMode === mode;
+          return (
+            <TouchableOpacity
+              key={mode}
+              onPress={() => setFeedMode(mode)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: active ? COLORS.blue : 'transparent' }}
+            >
+              <Text style={{ color: active ? COLORS.text : COLORS.muted, fontSize: 14, fontWeight: active ? '800' : '600' }}>
+                {mode === 'following' ? 'Following' : 'For You'}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
       {!!message && <Text style={styles.notice}>{message}</Text>}
       {loading && <EmptyState title="Loading your feed" description="Finding the latest posts from your CREOVA network." />}
-      {!loading && posts.length === 0 && <EmptyState title="Your feed starts here" description="Follow people or publish your first post. Their updates will appear here." />}
+      {!loading && posts.length === 0 && <EmptyState
+        title={feedMode === 'following' ? 'Your Following feed starts here' : 'Discover something new'}
+        description={feedMode === 'following'
+          ? 'Follow people or publish your first post. Their updates will appear here.'
+          : 'Public posts from creators across CREOVA will appear here.'}
+      />}
       {posts.map(post => (
         <View key={post.id} style={[styles.postCard, { marginHorizontal: -16 }]}>
           {!!post.repostedBy && <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700', marginBottom: 9 }}>↻ {post.repostedBy.display_name || post.repostedBy.username} reposted</Text>}
