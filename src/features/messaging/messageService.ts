@@ -207,6 +207,7 @@ export async function sendMessage(
   }
 
   let attachmentPath: string | null = null;
+  let uploadedSize: number | null = null;
   if (attachment) {
     const safeName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-100) || 'attachment';
     const extension = safeName.includes('.') ? safeName.split('.').pop() : 'bin';
@@ -215,6 +216,7 @@ export async function sendMessage(
     if (!response.ok) throw new Error('Could not read the selected attachment from your device.');
     const bytes = await response.arrayBuffer();
     if (bytes.byteLength > 25 * 1024 * 1024) throw new Error('Chat attachments must be 25 MB or smaller.');
+    uploadedSize = bytes.byteLength;
     const { error: uploadError } = await client.storage.from('creova-chat-media').upload(attachmentPath, bytes, {
       contentType: attachment.mimeType,
       cacheControl: '3600',
@@ -237,7 +239,7 @@ export async function sendMessage(
     attachment_path: attachmentPath,
     attachment_name: attachment?.fileName ?? null,
     attachment_mime_type: attachment?.mimeType ?? null,
-    attachment_size: attachment?.fileSize ?? null,
+    attachment_size: uploadedSize,
     attachment_duration_ms: attachment?.durationMs ?? null,
   };
   const { data, error } = await client.from('conversation_messages').insert(payload)
