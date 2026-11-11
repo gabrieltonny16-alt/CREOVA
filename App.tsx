@@ -428,10 +428,9 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
 
   return (
     <View style={styles.screenContent}>
-      <View style={{ paddingBottom: 15, marginBottom: 15, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
-          <Text style={styles.subheading}>Stories</Text>
-          <Text style={styles.mutedSmall}>DISAPPEAR AFTER 24 HOURS</Text>
+      <View style={{ paddingBottom: 8, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 5 }}>
+          <Text style={styles.mutedSmall}>STORIES · 24 HOURS</Text>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 15, paddingRight: 10 }}>
           <TouchableOpacity onPress={chooseStory} disabled={storyBusy} style={{ width: 66, alignItems: 'center', gap: 6 }}>
@@ -460,16 +459,17 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
         </ScrollView>
         {!!storyMessage && <Text style={[styles.notice, { marginTop: 8 }]}>{storyMessage}</Text>}
       </View>
-      <View style={styles.feedHeading}>
+      <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5 }]}>
         <Text style={styles.subheading}>Following</Text>
+        <Text style={styles.resultHandle}>For You</Text>
       </View>
       {!!message && <Text style={styles.notice}>{message}</Text>}
       {loading && <EmptyState title="Loading your feed" description="Finding the latest posts from your CREOVA network." />}
       {!loading && posts.length === 0 && <EmptyState title="Your feed starts here" description="Follow people or publish your first post. Their updates will appear here." />}
       {posts.map(post => (
-        <View key={post.id} style={styles.postCard}>
+        <View key={post.id} style={[styles.postCard, { marginHorizontal: -16 }]}>
           {!!post.repostedBy && <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700', marginBottom: 9 }}>↻ {post.repostedBy.display_name || post.repostedBy.username} reposted</Text>}
-          <View style={styles.postHeader}>
+          <View style={[styles.postHeader, { paddingHorizontal: 16, paddingTop: 4 }]}>
             <View style={styles.resultAvatar}>
               <Text style={styles.resultAvatarText}>{(post.author?.display_name || post.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>
             </View>
@@ -478,9 +478,9 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
               <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type} · {new Date(post.created_at).toLocaleDateString()}</Text>
             </View>
           </View>
-          {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={styles.feedImage} resizeMode="cover" />)}
-          {!!post.caption && <Text style={styles.postCaption}>{post.caption}</Text>}
-          <View style={[styles.postActions, { flexWrap: 'wrap', rowGap: 9 }]}>
+          {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={[styles.feedImage, { aspectRatio: 4 / 5 }]} resizeMode="cover" />)}
+          {!!post.caption && <Text style={[styles.postCaption, { paddingHorizontal: 16 }]}>{post.caption}</Text>}
+          <View style={[styles.postActions, { flexWrap: 'wrap', rowGap: 6, paddingHorizontal: 16, paddingBottom: 10 }]}>
             <TouchableOpacity disabled={busyPost === post.id || !!postActionBusy} onPress={() => likePost(post.id)} style={styles.postAction}>
               <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
             </TouchableOpacity>
@@ -863,6 +863,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
+  const [suggestedPeople, setSuggestedPeople] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
   const [selectedPeople, setSelectedPeople] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
   const [groupTitle, setGroupTitle] = useState('');
 
@@ -945,6 +946,20 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
 
   useEffect(() => {
     if (!newChatOpen) return;
+    const recentPeople = conversations
+      .flatMap(item => item.participants)
+      .filter(person => person.user_id !== currentUserId && person.membership_status === 'accepted' && person.profile)
+      .reduce((unique, person) => {
+        if (!unique.some(item => item.id === person.user_id)) unique.push({
+          id: person.user_id,
+          username: person.profile!.username,
+          display_name: person.profile!.display_name,
+          avatar_url: person.profile!.avatar_url,
+          is_private: false,
+        });
+        return unique;
+      }, [] as Awaited<ReturnType<typeof searchProfiles>>);
+    setSuggestedPeople(recentPeople.slice(0, 8));
     const query = searchQuery.trim();
     if (query.length < 2) {
       setSearchResults([]);
@@ -1332,21 +1347,23 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
           <Text style={styles.heading}>New conversation</Text>
           <TouchableOpacity onPress={() => setNewChatOpen(false)}><Text style={{ color: COLORS.text, fontSize: 26 }}>×</Text></TouchableOpacity>
         </View>
-        <Text style={styles.notice}>Choose one person for a private chat, or two or more people to create a group.</Text>
-        <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Search by username…" placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" />
-        {!!selectedPeople.length && <View style={{ gap: 7 }}>
-          <Text style={styles.editLabel}>SELECTED · {selectedPeople.length}</Text>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
-            {selectedPeople.map(person => <TouchableOpacity key={person.id} onPress={() => togglePerson(person)} style={{ backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: COLORS.blue, borderRadius: 18, paddingHorizontal: 11, paddingVertical: 7 }}>
-              <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700' }}>@{person.username} ×</Text>
-            </TouchableOpacity>)}
+        <View style={{ gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, paddingHorizontal: 10 }}>
+            <Text style={{ color: COLORS.muted, fontSize: 12, fontWeight: '800' }}>To:</Text>
+            <ScrollView horizontal keyboardShouldPersistTaps="handled" showsHorizontalScrollIndicator={false} contentContainerStyle={{ alignItems: 'center', gap: 6 }}>
+              {selectedPeople.map(person => <TouchableOpacity key={person.id} onPress={() => togglePerson(person)} style={{ backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: COLORS.blue, borderRadius: 18, paddingHorizontal: 10, paddingVertical: 6 }}>
+                <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700' }}>@{person.username} ×</Text>
+              </TouchableOpacity>)}
+            </ScrollView>
           </View>
-        </View>}
+          <TextInput value={searchQuery} onChangeText={setSearchQuery} placeholder="Search name or username…" placeholderTextColor="#71819C" style={[styles.searchInput, { minHeight: 46, maxHeight: 48 }]} autoCapitalize="none" multiline={false} />
+        </View>
         {selectedPeople.length > 1 && <TextInput value={groupTitle} onChangeText={setGroupTitle} maxLength={80} placeholder="Group name (optional)" placeholderTextColor="#71819C" style={styles.searchInput} />}
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 7 }}>
-          {searchQuery.trim().length < 2 && <EmptyState title="Find people on CREOVA" description="Type at least two characters of a username to search." />}
-          {searchQuery.trim().length >= 2 && !searchResults.length && <EmptyState title="No matches yet" description="Try another username." />}
-          {searchResults.map(person => {
+          {searchQuery.trim().length < 2 && <Text style={styles.editLabel}>SUGGESTED · RECENT CONVERSATIONS</Text>}
+          {searchQuery.trim().length < 2 && suggestedPeople.length === 0 && <EmptyState title="Find people on CREOVA" description="Search a name or username to discover someone and start a conversation." />}
+          {searchQuery.trim().length >= 2 && !searchResults.length && <EmptyState title="No matches found" description="Check the spelling or try another name or username." />}
+          {(searchQuery.trim().length < 2 ? suggestedPeople : searchResults).map(person => {
             const selected = selectedPeople.some(item => item.id === person.id);
             return <TouchableOpacity key={person.id} onPress={() => togglePerson(person)} style={[styles.resultRow, { borderColor: selected ? COLORS.blue : COLORS.border, backgroundColor: selected ? COLORS.accentSoft : COLORS.surface }]}>
               <View style={styles.resultAvatar}>
@@ -1361,7 +1378,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
           })}
         </ScrollView>
         <TouchableOpacity disabled={!selectedPeople.length || busyId === 'new-chat'} onPress={() => void startConversation()} style={[styles.publishButton, (!selectedPeople.length || busyId === 'new-chat') && styles.publishButtonDisabled]}>
-          <Text style={styles.publishButtonText}>{busyId === 'new-chat' ? 'Starting…' : selectedPeople.length > 1 ? 'Create group chat' : 'Start private chat'}</Text>
+          <Text style={styles.publishButtonText}>{busyId === 'new-chat' ? 'Starting…' : selectedPeople.length > 1 ? 'Next · Create group' : selectedPeople.length === 1 ? 'Next · Private chat' : 'Select a recipient'}</Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
