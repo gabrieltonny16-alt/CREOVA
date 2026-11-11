@@ -7,6 +7,8 @@ import { getNotifications, markNotificationRead, markAllNotificationsRead } from
 import type { CreovaNotification } from './src/features/notifications/notificationService';
 import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
+import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
+import type { CreovaStory } from './src/features/stories/storyService';
 import { supabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -84,6 +86,170 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   const [replyTo, setReplyTo] = useState<CreovaPostComment | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentMessage, setCommentMessage] = useState('');
+  const [stories, setStories] = useState<CreovaStory[]>([]);
+  const [storyMessage, setStoryMessage] = useState('');
+  const [storyBusy, setStoryBusy] = useState(false);
+  const [activeStoryOwnerId, setActiveStoryOwnerId] = useState<string | null>(null);
+  const [activeStoryIndex, setActiveStoryIndex] = useState(0);
+  const [storyReplyDraft, setStoryReplyDraft] = useState('');
+  const [storyViewers, setStoryViewers] = useState<Awaited<ReturnType<typeof getMyStoryViewers>>>([]);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  const activeStoryGroup = activeStoryOwnerId
+    ? stories.filter(item => item.user_id === activeStoryOwnerId)
+    : [];
+  const activeStory = activeStoryGroup[activeStoryIndex] ?? null;
+  const storyGroups = Array.from(new Map(stories.map(item => [item.user_id, item])).values());
+
+  async function refreshStories() {
+    try {
+      setStories(await getActiveStories());
+      setStoryMessage('');
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not load stories.');
+    }
+  }
+
+  async function chooseStory() {
+    if (storyBusy) return;
+    setStoryBusy(true);
+    setStoryMessage('');
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setStoryMessage('Allow photo-library access to add a story.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets.length) return;
+      const asset = result.assets[0];
+      if (asset.fileSize != null && asset.fileSize > 50 * 1024 * 1024) {
+        setStoryMessage('Stories must be 50 MB or smaller.');
+        return;
+      }
+      await publishStory({
+        media: {
+          uri: asset.uri,
+          mimeType: asset.mimeType ?? 'image/jpeg',
+          fileSize: asset.fileSize ?? null,
+        },
+        visibility: 'followers',
+      });
+      await refreshStories();
+      setStoryMessage('Your story is live for 24 hours.');
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not publish your story.');
+    } finally {
+      setStoryBusy(false);
+    }
+  }
+
+  async function openStoryGroup(ownerId: string) {
+    const group = stories.filter(item => item.user_id === ownerId);
+    if (!group.length) return;
+    setActiveStoryOwnerId(ownerId);
+    setActiveStoryIndex(0);
+    setStoryReplyDraft('');
+    setViewersOpen(false);
+    setStoryViewers([]);
+    try {
+      await markStoryViewed(group[0].id);
+      setStories(items => items.map(item => item.id === group[0].id ? { ...item, viewedByMe: true } : item));
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not record this story view.');
+    }
+  }
+
+  async function advanceStory() {
+    if (activeStoryIndex + 1 < activeStoryGroup.length) {
+      const nextIndex = activeStoryIndex + 1;
+      setActiveStoryIndex(nextIndex);
+      const next = activeStoryGroup[nextIndex];
+      try {
+        await markStoryViewed(next.id);
+        setStories(items => items.map(item => item.id === next.id ? { ...item, viewedByMe: true } : item));
+      } catch { /* Keep the viewer moving if view tracking is temporarily unavailable. */ }
+    } else {
+      setActiveStoryOwnerId(null);
+      setViewersOpen(false);
+    }
+  }
+
+  async function sendStoryReply() {
+    if (!activeStory || !storyReplyDraft.trim() || storyBusy) return;
+    setStoryBusy(true);
+    try {
+      await replyToStory(activeStory.id, storyReplyDraft);
+      setStoryReplyDraft('');
+      setStoryMessage('Reply sent.');
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not send your reply.');
+    } finally {
+      setStoryBusy(false);
+    }
+  }
+
+  async function sendStoryReaction(reaction: '❤️' | '😂' | '😮' | '😢' | '🔥' | '👏') {
+    if (!activeStory || storyBusy) return;
+    setStoryBusy(true);
+    try {
+      await reactToStory(activeStory.id, reaction);
+      setStoryMessage('Reaction sent.');
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not react to this story.');
+    } finally {
+      setStoryBusy(false);
+    }
+  }
+
+  async function loadStoryViewers() {
+    if (!activeStory || activeStory.user_id !== (await supabase.auth.getUser()).data.user?.id) return;
+    try {
+      setStoryViewers(await getMyStoryViewers(activeStory.id));
+      setViewersOpen(true);
+    } catch (error) {
+      setStoryMessage(error instanceof Error ? error.message : 'Could not load story viewers.');
+    }
+  }
+
+  async function removeActiveStory() {
+    if (!activeStory || storyBusy) return;
+    Alert.alert('Delete story?', 'This story will be removed before its 24-hour expiry.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => {
+        void (async () => {
+          setStoryBusy(true);
+          try {
+            await deleteStory(activeStory.id);
+            const remaining = activeStoryGroup.filter(item => item.id !== activeStory.id);
+            setStories(items => items.filter(item => item.id !== activeStory.id));
+            if (remaining.length) setActiveStoryIndex(Math.min(activeStoryIndex, remaining.length - 1));
+            else setActiveStoryOwnerId(null);
+          } catch (error) {
+            setStoryMessage(error instanceof Error ? error.message : 'Could not delete this story.');
+          } finally {
+            setStoryBusy(false);
+          }
+        })();
+      } },
+    ]);
+  }
+
+  useEffect(() => {
+    void refreshStories();
+    void supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
+
+  useEffect(() => {
+    if (!activeStory) return;
+    const timer = setTimeout(() => { void advanceStory(); }, 6000);
+    return () => clearTimeout(timer);
+  }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId]);
 
   async function openComments(post: CreovaFeedPost) {
     setCommentPost(post);
@@ -236,6 +402,38 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
 
   return (
     <View style={styles.screenContent}>
+      <View style={{ paddingBottom: 15, marginBottom: 15, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 11 }}>
+          <Text style={styles.subheading}>Stories</Text>
+          <Text style={styles.mutedSmall}>DISAPPEAR AFTER 24 HOURS</Text>
+        </View>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 15, paddingRight: 10 }}>
+          <TouchableOpacity onPress={chooseStory} disabled={storyBusy} style={{ width: 66, alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 2, borderColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surfaceRaised }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 29, lineHeight: 32 }}>+</Text>
+            </View>
+            <Text numberOfLines={1} style={{ color: COLORS.muted, fontSize: 10, fontWeight: '700' }}>{storyBusy ? 'Working…' : 'Your story'}</Text>
+          </TouchableOpacity>
+          {storyGroups.map(group => {
+            const groupItems = stories.filter(item => item.user_id === group.user_id);
+            const viewed = groupItems.every(item => item.viewedByMe);
+            const author = group.author;
+            return (
+              <TouchableOpacity key={group.user_id} onPress={() => void openStoryGroup(group.user_id)} style={{ width: 66, alignItems: 'center', gap: 6 }}>
+                <View style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 2, borderColor: viewed ? COLORS.border : COLORS.blue, padding: 3 }}>
+                  <View style={{ flex: 1, borderRadius: 25, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}>
+                    {author?.avatar_url
+                      ? <Image source={{ uri: author.avatar_url }} style={{ width: '100%', height: '100%' }} />
+                      : <Text style={styles.resultAvatarText}>{(author?.display_name || author?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+                  </View>
+                </View>
+                <Text numberOfLines={1} style={{ color: COLORS.text, fontSize: 10, fontWeight: '700' }}>{author?.username || 'CREOVA'}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+        {!!storyMessage && <Text style={[styles.notice, { marginTop: 8 }]}>{storyMessage}</Text>}
+      </View>
       <View style={styles.feedHeading}>
         <Text style={styles.subheading}>Following</Text>
       </View>
@@ -352,6 +550,52 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+      <Modal visible={!!activeStory} animationType="fade" onRequestClose={() => setActiveStoryOwnerId(null)}>
+        <View style={{ flex: 1, backgroundColor: '#05070D', paddingTop: Platform.OS === 'android' ? 28 : 48, paddingHorizontal: 12, paddingBottom: 22 }}>
+          {activeStory && <>
+            <View style={{ flexDirection: 'row', gap: 4, marginBottom: 14 }}>
+              {activeStoryGroup.map((item, index) => <View key={item.id} style={{ flex: 1, height: 3, borderRadius: 3, backgroundColor: index <= activeStoryIndex ? '#FFFFFF' : '#526078' }} />)}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 14 }}>
+              <View style={styles.resultAvatar}>
+                {activeStory.author?.avatar_url
+                  ? <Image source={{ uri: activeStory.author.avatar_url }} style={styles.requestAvatarImage} />
+                  : <Text style={styles.resultAvatarText}>{(activeStory.author?.display_name || 'C').slice(0, 1).toUpperCase()}</Text>}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{activeStory.author?.display_name || activeStory.author?.username || 'CREOVA member'}</Text>
+                <Text style={{ color: '#A9B4C8', fontSize: 10 }}>{new Date(activeStory.created_at).toLocaleString()}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)}><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
+            </View>
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />
+              {!!activeStory.caption && <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', padding: 12 }}>{activeStory.caption}</Text>}
+            </View>
+            {activeStory.user_id === currentUserId && <TouchableOpacity onPress={() => void loadStoryViewers()} style={{ alignSelf: 'flex-start', paddingVertical: 9 }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 11 }}>◉ {activeStory.viewerCount} views · Viewers</Text>
+            </TouchableOpacity>}
+            {viewersOpen && <View style={{ maxHeight: 150, backgroundColor: '#111827', borderRadius: 12, padding: 10, marginBottom: 8 }}>
+              <ScrollView>
+                {storyViewers.map(viewer => <Text key={viewer.viewer_id} style={{ color: '#FFFFFF', fontSize: 12, paddingVertical: 4 }}>{viewer.viewer?.display_name || viewer.viewer?.username || 'CREOVA member'} · {new Date(viewer.viewed_at).toLocaleTimeString()}</Text>)}
+                {!storyViewers.length && <Text style={{ color: '#A9B4C8', fontSize: 11 }}>No views yet.</Text>}
+              </ScrollView>
+            </View>}
+            {activeStory.user_id === currentUserId
+              ? <TouchableOpacity onPress={() => void removeActiveStory()} style={{ alignSelf: 'flex-end', padding: 8 }}><Text style={{ color: '#FF9BAF', fontSize: 12, fontWeight: '800' }}>Delete story</Text></TouchableOpacity>
+              : <View style={{ gap: 10 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-around' }}>
+                    {(['❤️', '😂', '😮', '😢', '🔥', '👏'] as const).map(reaction => <TouchableOpacity key={reaction} disabled={storyBusy} onPress={() => void sendStoryReaction(reaction)}><Text style={{ fontSize: 23 }}>{reaction}</Text></TouchableOpacity>)}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TextInput value={storyReplyDraft} onChangeText={setStoryReplyDraft} maxLength={1000} placeholder="Reply to this story…" placeholderTextColor="#8794AA" style={{ flex: 1, borderWidth: 1, borderColor: '#344158', borderRadius: 22, paddingHorizontal: 15, paddingVertical: 11, color: '#FFFFFF' }} />
+                    <TouchableOpacity disabled={storyBusy || !storyReplyDraft.trim()} onPress={() => void sendStoryReply()} style={{ padding: 10 }}><Text style={{ color: '#8DBBFF', fontWeight: '800' }}>{storyBusy ? '…' : 'Send'}</Text></TouchableOpacity>
+                  </View>
+                </View>}
+            <TouchableOpacity onPress={() => void advanceStory()} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: '#A9B4C8', fontSize: 10 }}>Tap to continue</Text></TouchableOpacity>
+          </>}
+        </View>
       </Modal>
     </View>
   );
