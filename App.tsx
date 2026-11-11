@@ -744,7 +744,7 @@ function CreateScreen() {
         for (const asset of assets) {
           const isVideo = asset.type === 'video';
           const mimeType = (asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg')).toLowerCase();
-          const maxBytes = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+          const maxBytes = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024;
           const allowed = isVideo
             ? ['video/mp4', 'video/quicktime', 'video/webm']
             : ['image/jpeg', 'image/png', 'image/webp'];
@@ -753,7 +753,7 @@ function CreateScreen() {
             return;
           }
           if (asset.fileSize != null && asset.fileSize > maxBytes) {
-            setNotice(isVideo ? 'Each video must be smaller than 100 MB.' : 'Each photo must be smaller than 10 MB.');
+            setNotice(isVideo ? 'Each video must be smaller than 50 MB.' : 'Each photo must be smaller than 10 MB.');
             return;
           }
           if (isVideo && asset.duration != null && asset.duration > 180_000) {
@@ -807,7 +807,7 @@ function CreateScreen() {
   return <View style={styles.screenContent}>
     <View style={styles.composerCard}>
       <Text style={styles.composerTitle}>Create a post</Text>
-      <Text style={styles.composerHint}>Write something or add up to 10 photos/videos. Photos: 10 MB max. Videos: 100 MB and 3 minutes max.</Text>
+      <Text style={styles.composerHint}>Write something or add up to 10 photos/videos. Photos: 10 MB max. Videos: 50 MB and 3 minutes max.</Text>
       <TextInput
         value={caption}
         onChangeText={setCaption}
