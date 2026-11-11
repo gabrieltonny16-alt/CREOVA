@@ -295,6 +295,31 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
   }).sort((a, b) => new Date(b.feedCreatedAt).getTime() - new Date(a.feedCreatedAt).getTime());
 }
 
+export async function getForYouFeed(): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view your feed.');
+
+  // The posts_select_visible RLS policy is the privacy boundary:
+  // public posts from public profiles are discoverable; private/followers-only
+  // content remains hidden unless the signed-in user is authorized.
+  const [postsResult, savedResult] = await Promise.all([
+    client.from('posts').select(FEED_POST_SELECT)
+      .eq('visibility', 'public')
+      .neq('author_id', auth.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    client.from('post_saves').select('post_id').eq('user_id', auth.user.id),
+  ]);
+  if (postsResult.error) throw postsResult.error;
+  if (savedResult.error) throw savedResult.error;
+
+  const hydrated = await hydrateFeedPosts((postsResult.data ?? []) as unknown as RawFeedPost[], auth.user.id);
+  const savedIds = new Set((savedResult.data ?? []).map(row => row.post_id));
+  return hydrated.map(post => ({ ...post, savedByMe: savedIds.has(post.id) }));
+}
+
 export async function getPostById(postId: string): Promise<CreovaFeedPost> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
