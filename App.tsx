@@ -837,6 +837,7 @@ function ProfileScreen() {
       {visiblePosts.length ? <View style={styles.profilePostGrid}>
         {visiblePosts.map(post => <View key={post.id} style={styles.profilePostTile}>
           {post.media[0] ? <Image source={{ uri: post.media[0].signedUrl }} style={styles.profilePostImage} resizeMode="cover" /> : <View style={styles.profilePostTextTile}><Text style={styles.profilePostType}>{post.post_type.toUpperCase()}</Text><Text numberOfLines={4} style={styles.profilePostCaption}>{post.caption || 'CREOVA creation'}</Text></View>}
+          <View style={styles.profilePostMetric}><Text style={styles.profilePostMetricText}>♥ {post.likeCount}</Text></View>
         </View>)}
       </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'ALL' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
@@ -1059,6 +1060,8 @@ const styles = StyleSheet.create({
   profilePostGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 0 },
   profilePostTile: { width: '33.333%', aspectRatio: 1, borderRadius: 0, overflow: 'hidden', backgroundColor: '#000000', borderWidth: 0 },
   profilePostImage: { width: '100%', height: '100%' },
+  profilePostMetric: { position: 'absolute', left: 5, bottom: 5, paddingHorizontal: 5, paddingVertical: 3, borderRadius: 5, backgroundColor: 'rgba(0,0,0,0.62)' },
+  profilePostMetricText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
   profilePostTextTile: { flex: 1, padding: 9, justifyContent: 'space-between', gap: 6 },
   profilePostType: { color: '#A7C6FF', fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
   profilePostCaption: { color: COLORS.text, fontSize: 10, lineHeight: 14 },
