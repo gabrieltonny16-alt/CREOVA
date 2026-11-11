@@ -72,11 +72,15 @@ function EmptyState({ title, description }: { title: string; description: string
   );
 }
 
-function StoryVideo({ uri }: { uri: string }) {
+function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   const player = useVideoPlayer(uri, instance => {
-    instance.loop = true;
+    instance.loop = false;
     instance.play();
   });
+  useEffect(() => {
+    const subscription = player.addListener('playToEnd', onFinish);
+    return () => subscription.remove();
+  }, [player, onFinish]);
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
@@ -260,8 +264,8 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   }, []);
 
   useEffect(() => {
-    if (!activeStory) return;
-    const timer = setTimeout(() => { void advanceStory(); }, activeStory.media_type === 'video' ? 15000 : 6000);
+    if (!activeStory || activeStory.media_type === 'video') return;
+    const timer = setTimeout(() => { void advanceStory(); }, 6000);
     return () => clearTimeout(timer);
   }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId]);
 
@@ -585,7 +589,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
             </View>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               {activeStory.media_type === 'video'
-                ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} />
+                ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} onFinish={() => { void advanceStory(); }} />
                 : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
               {!!activeStory.caption && <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', padding: 12 }}>{activeStory.caption}</Text>}
             </View>
