@@ -265,24 +265,28 @@ export function subscribeToConversationMessages(
   return () => { void client.removeChannel(channel); };
 }
 
-export function subscribeToInboxChanges(onChange: () => void): () => void {
+export function subscribeToInboxChanges(
+  onMessagesChange: () => void,
+  onMembershipChange: () => void,
+  onNotificationsChange: () => void,
+): () => void {
   const client = requireSupabase();
   const channel = client.channel('creova:inbox-updates')
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'conversation_messages',
-    }, onChange)
+    }, onMessagesChange)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'conversation_members',
-    }, onChange)
+    }, onMembershipChange)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'notifications',
-    }, onChange)
+    }, onNotificationsChange)
     .subscribe();
   return () => { void client.removeChannel(channel); };
 }
