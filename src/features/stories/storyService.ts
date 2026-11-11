@@ -220,7 +220,7 @@ export async function getMyStoryViewers(storyId: string): Promise<Array<{
   return (data ?? []).map(({ viewer_id, viewed_at, viewer }) => ({
     viewer_id,
     viewed_at,
-    viewer: viewer as { username: string; display_name: string; avatar_url: string | null } | null,
+    viewer: (Array.isArray(viewer) ? viewer[0] : viewer) as unknown as { username: string; display_name: string; avatar_url: string | null } | null,
   }));
 }
 
