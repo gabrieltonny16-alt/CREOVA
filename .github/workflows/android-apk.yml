@@ -20,6 +20,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: creova-android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   android-apk:
     name: Build installable Android APK
@@ -68,19 +72,11 @@ jobs:
           restore-keys: |
             gradle-${{ runner.os }}-
 
-      - name: Install Gradle from distribution host
-        run: |
-          curl --fail --location --retry 8 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 600 \
-            https://downloads.gradle.org/distributions/gradle-9.4.1-bin.zip \
-            --output /tmp/gradle-9.4.1-bin.zip
-          mkdir -p "$HOME/gradle"
-          unzip -q /tmp/gradle-9.4.1-bin.zip -d "$HOME/gradle"
-          echo "$HOME/gradle/gradle-9.4.1/bin" >> "$GITHUB_PATH"
-
       - name: Build installable release APK with bundled JavaScript
         run: |
           cd android
-          gradle --no-daemon assembleRelease
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleRelease
           test -s app/build/outputs/apk/release/app-release.apk
           find app/build -type f -name index.android.bundle -size +0c | grep -q .
 
