@@ -333,6 +333,13 @@ export function subscribeToConversationMessages(
         client_message_id: row.client_message_id,
         body: row.body,
         created_at: row.created_at,
+        attachment_type: row.attachment_type ?? null,
+        attachment_path: row.attachment_path ?? null,
+        attachment_name: row.attachment_name ?? null,
+        attachment_mime_type: row.attachment_mime_type ?? null,
+        attachment_size: row.attachment_size ?? null,
+        attachment_duration_ms: row.attachment_duration_ms ?? null,
+        attachmentUrl: null,
         sender: null,
       });
     })
