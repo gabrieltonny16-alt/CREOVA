@@ -3,6 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
+import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
+import type { CreovaNotification } from './src/features/notifications/notificationService';
 import { createPost, createPostWithImages, getHomeFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
@@ -550,51 +552,111 @@ function CreateScreen() {
     </View>
   </View>;
 }
-function InboxScreen() {
+function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+  const [section, setSection] = useState<'Activity' | 'Requests'>('Activity');
+  const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
   const [requests, setRequests] = useState<Awaited<ReturnType<typeof getIncomingFollowRequests>>>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [message, setMessage] = useState('');
 
+  async function loadActivity() {
+    setLoading(true); setMessage('');
+    try { setNotifications(await getNotifications()); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load your activity.'); }
+    finally { setLoading(false); }
+  }
+
   async function loadRequests() {
-    setLoading(true);
-    setMessage('');
-    try {
-      setRequests(await getIncomingFollowRequests());
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load follow requests.');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setMessage('');
+    try { setRequests(await getIncomingFollowRequests()); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load follow requests.'); }
+    finally { setLoading(false); }
   }
 
   useEffect(() => {
-    loadRequests();
-  }, []);
+    if (section === 'Activity') void loadActivity();
+    else void loadRequests();
+  }, [section]);
+
+  async function openNotification(item: CreovaNotification) {
+    if (busyId) return;
+    setBusyId(item.id);
+    try {
+      if (!item.read_at) {
+        await markNotificationRead(item.id);
+        setNotifications(items => items.map(value => value.id === item.id ? { ...value, read_at: new Date().toISOString() } : value));
+      }
+      if (item.post_id) onOpenPost(item.post_id);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open this activity.'); }
+    finally { setBusyId(''); }
+  }
+
+  async function markAllRead() {
+    if (busyId) return;
+    setBusyId('all'); setMessage('');
+    try {
+      await markAllNotificationsRead();
+      const now = new Date().toISOString();
+      setNotifications(items => items.map(item => item.read_at ? item : { ...item, read_at: now }));
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not mark activity as read.'); }
+    finally { setBusyId(''); }
+  }
 
   async function respond(followerId: string, accept: boolean) {
     if (busyId) return;
-    setBusyId(followerId);
-    setMessage('');
+    setBusyId(followerId); setMessage('');
     try {
       await respondToFollowRequest(followerId, accept);
       setRequests(items => items.filter(item => item.follower_id !== followerId));
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not update this request.');
-    } finally {
-      setBusyId('');
-    }
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update this request.'); }
+    finally { setBusyId(''); }
   }
 
+  const unreadCount = notifications.filter(item => !item.read_at).length;
+  const notificationText: Record<CreovaNotification['notification_type'], string> = {
+    follow_request: 'requested to follow you',
+    new_follower: 'started following you',
+    follow_accepted: 'accepted your follow request',
+    post_like: 'liked your post',
+    post_comment: 'commented on your post',
+    comment_reply: 'replied to a comment',
+    post_repost: 'reposted your post',
+  };
+
   return <View style={styles.screenContent}>
-    <View style={styles.sectionHeading}>
-      <Text style={styles.subheading}>Follow requests</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 22, borderBottomWidth: 1, borderBottomColor: COLORS.border }}>
+      {(['Activity', 'Requests'] as const).map(value => (
+        <TouchableOpacity key={value} onPress={() => setSection(value)} style={{ paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: section === value ? COLORS.blue : 'transparent' }}>
+          <Text style={{ color: section === value ? COLORS.text : COLORS.muted, fontSize: 14, fontWeight: '800' }}>
+            {value}{value === 'Activity' && unreadCount > 0 ? ` · ${unreadCount}` : ''}
+          </Text>
+        </TouchableOpacity>
+      ))}
+      <View style={{ flex: 1 }} />
+      {section === 'Activity' && unreadCount > 0 && <TouchableOpacity disabled={busyId === 'all'} onPress={markAllRead}>
+        <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700' }}>Mark all read</Text>
+      </TouchableOpacity>}
     </View>
-    <Text style={styles.mutedSmall}>{requests.length} PENDING REQUEST{requests.length === 1 ? '' : 'S'}</Text>
     {!!message && <Text style={styles.notice}>{message}</Text>}
-    {loading && <EmptyState title="Checking requests" description="Loading people who want to follow you." />}
-    {!loading && requests.length === 0 && <EmptyState title="You're all caught up" description="New follow requests will appear here. Direct and group messaging will be added as its own complete feature." />}
-    {requests.map(item => <View key={item.follower_id} style={styles.requestCard}>
+    {loading && <EmptyState title={section === 'Activity' ? 'Loading activity' : 'Checking requests'} description={section === 'Activity' ? 'Fetching updates from your CREOVA network.' : 'Loading people who want to follow you.'} />}
+    {!loading && section === 'Activity' && notifications.length === 0 && <EmptyState title="Your activity starts here" description="Follow, like, comment and repost activity will appear here." />}
+    {!loading && section === 'Requests' && requests.length === 0 && <EmptyState title="You're all caught up" description="New follow requests will appear here." />}
+    {!loading && section === 'Activity' && notifications.map(item => (
+      <TouchableOpacity key={item.id} disabled={!!busyId} onPress={() => openNotification(item)} style={[styles.requestCard, { backgroundColor: item.read_at ? 'transparent' : '#101827', borderColor: 'transparent', opacity: busyId === item.id ? 0.6 : 1 }]}>
+        <View style={styles.resultAvatar}>
+          {item.actor?.avatar_url
+            ? <Image source={{ uri: item.actor.avatar_url }} style={styles.requestAvatarImage} />
+            : <Text style={styles.resultAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+        </View>
+        <View style={styles.resultInfo}>
+          <Text style={styles.resultName}>{item.actor?.display_name || item.actor?.username || 'CREOVA member'} <Text style={{ color: COLORS.muted, fontWeight: '400' }}>{notificationText[item.notification_type]}</Text></Text>
+          <Text style={styles.resultHandle}>@{item.actor?.username || 'member'} · {new Date(item.created_at).toLocaleString()}</Text>
+        </View>
+        {!item.read_at && <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.blue }} />}
+      </TouchableOpacity>
+    ))}
+    {!loading && section === 'Requests' && requests.map(item => <View key={item.follower_id} style={styles.requestCard}>
       <View style={styles.resultAvatar}>
         {item.follower.avatar_url
           ? <Image source={{ uri: item.follower.avatar_url }} style={styles.requestAvatarImage} />
@@ -946,7 +1008,7 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen />;
+      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
       case 'Profile': return <ProfileScreen />;
       default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} />;
     }
