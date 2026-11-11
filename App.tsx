@@ -7,7 +7,7 @@ import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, foll
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
-import { createPost, createPostWithImages, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
@@ -78,6 +78,11 @@ function EmptyState({ title, description }: { title: string; description: string
       <Text style={styles.emptyDescription}>{description}</Text>
     </View>
   );
+}
+
+function FeedVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri);
+  return <VideoView player={player} style={{ width: '100%', aspectRatio: 4 / 5, backgroundColor: '#000000' }} contentFit="contain" nativeControls />;
 }
 
 function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
@@ -498,7 +503,9 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
               <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type} · {new Date(post.created_at).toLocaleDateString()}</Text>
             </View>
           </View>
-          {post.media?.map(media => <Image key={media.id} source={{ uri: media.signedUrl }} style={[styles.feedImage, { aspectRatio: 4 / 5 }]} resizeMode="cover" />)}
+          {post.media?.map(media => media.mediaType === 'video'
+            ? <FeedVideo key={media.id} uri={media.signedUrl} />
+            : <Image key={media.id} source={{ uri: media.signedUrl }} style={[styles.feedImage, { aspectRatio: 4 / 5 }]} resizeMode="cover" />)}
           {!!post.caption && <Text style={[styles.postCaption, { paddingHorizontal: 16 }]}>{post.caption}</Text>}
           <View style={[styles.postActions, { flexWrap: 'wrap', rowGap: 6, paddingHorizontal: 16, paddingBottom: 10 }]}>
             <TouchableOpacity disabled={busyPost === post.id || !!postActionBusy} onPress={() => likePost(post.id)} style={styles.postAction}>
@@ -719,15 +726,15 @@ function CreateScreen() {
   const [caption, setCaption] = useState('');
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
-  const [selectedImages, setSelectedImages] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState('');
 
-  async function chooseImage() {
+  async function chooseMedia() {
     setNotice('');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ['images', 'videos'],
         allowsMultipleSelection: true,
         selectionLimit: 10,
         quality: 0.85,
@@ -735,52 +742,60 @@ function CreateScreen() {
       if (!result.canceled && result.assets.length) {
         const assets = result.assets.slice(0, 10);
         for (const asset of assets) {
-          if (asset.type && asset.type !== 'image') {
-            setNotice('Choose image files only.');
+          const isVideo = asset.type === 'video';
+          const mimeType = (asset.mimeType ?? (isVideo ? 'video/mp4' : 'image/jpeg')).toLowerCase();
+          const maxBytes = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+          const allowed = isVideo
+            ? ['video/mp4', 'video/quicktime', 'video/webm']
+            : ['image/jpeg', 'image/png', 'image/webp'];
+          if (!allowed.includes(mimeType)) {
+            setNotice(isVideo ? 'Use MP4, MOV, or WebM videos.' : 'Use JPEG, PNG, or WebP photos.');
             return;
           }
-          if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
-            setNotice('Each photo must be smaller than 10 MB.');
+          if (asset.fileSize != null && asset.fileSize > maxBytes) {
+            setNotice(isVideo ? 'Each video must be smaller than 100 MB.' : 'Each photo must be smaller than 10 MB.');
             return;
           }
-          if (asset.mimeType && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
-            setNotice('Use JPEG, PNG, or WebP photos.');
+          if (isVideo && asset.duration != null && asset.duration > 180_000) {
+            setNotice('Feed videos must be 3 minutes or shorter.');
             return;
           }
         }
-        setSelectedImages(assets);
+        setSelectedMedia(assets);
       }
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not open your photo library.');
+      setNotice(error instanceof Error ? error.message : 'Could not open your media library.');
     }
   }
 
   async function publish() {
-    if (!caption.trim() && selectedImages.length === 0) {
-      setNotice('Write a caption or choose an image first.');
+    if (!caption.trim() && selectedMedia.length === 0) {
+      setNotice('Write a caption or choose a photo/video first.');
       return;
     }
     setPublishing(true);
     setNotice('');
     try {
-      if (selectedImages.length) {
-        await createPostWithImages({
+      if (selectedMedia.length) {
+        await createPostWithMedia({
           caption,
           postType,
           visibility,
-          images: selectedImages.map(asset => ({
+          media: selectedMedia.map(asset => ({
             uri: asset.uri,
-            mimeType: asset.mimeType ?? 'image/jpeg',
+            mimeType: asset.mimeType ?? (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
             fileSize: asset.fileSize ?? null,
             width: asset.width,
             height: asset.height,
+            mediaType: asset.type === 'video' ? 'video' : 'image',
+            durationSeconds: asset.type === 'video' && asset.duration != null ? asset.duration / 1000 : null,
           })),
         });
       } else {
         await createPost({ caption, postType, visibility });
       }
       setCaption('');
-      setSelectedImages([]);
+      setSelectedMedia([]);
       setNotice('Published. Your post is now in your CREOVA feed.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
@@ -792,7 +807,7 @@ function CreateScreen() {
   return <View style={styles.screenContent}>
     <View style={styles.composerCard}>
       <Text style={styles.composerTitle}>Create a post</Text>
-      <Text style={styles.composerHint}>Write something or add up to 10 photos.</Text>
+      <Text style={styles.composerHint}>Write something or add up to 10 photos/videos. Photos: 10 MB max. Videos: 100 MB and 3 minutes max.</Text>
       <TextInput
         value={caption}
         onChangeText={setCaption}
@@ -804,19 +819,21 @@ function CreateScreen() {
         textAlignVertical="top"
       />
       <Text style={styles.composerCount}>{caption.length}/2200</Text>
-      <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
-        <Text style={styles.imagePickButtonText}>{selectedImages.length ? '＋ Add or replace photos' : '＋ Add photos (up to 10)'}</Text>
+      <TouchableOpacity onPress={chooseMedia} disabled={publishing} style={styles.imagePickButton}>
+        <Text style={styles.imagePickButtonText}>{selectedMedia.length ? '＋ Add or replace media' : '＋ Add photos or videos (up to 10)'}</Text>
       </TouchableOpacity>
-      {selectedImages.length > 0 && <Text style={styles.composerCount}>{selectedImages.length}/10 photos selected · Drag order follows your selection</Text>}
-      {selectedImages.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 8 }}>
-        {selectedImages.map((asset, index) => <View key={asset.assetId ?? asset.uri} style={{ width: 132, gap: 6 }}>
+      {selectedMedia.length > 0 && <Text style={styles.composerCount}>{selectedMedia.length}/10 media items selected · Order follows your selection</Text>}
+      {selectedMedia.length > 0 && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingVertical: 8 }}>
+        {selectedMedia.map((asset, index) => <View key={asset.assetId ?? asset.uri} style={{ width: 132, gap: 6 }}>
           <View style={{ position: 'relative' }}>
-            <Image source={{ uri: asset.uri }} style={{ width: 132, height: 132, borderRadius: 12 }} resizeMode="cover" />
+            {asset.type === 'video'
+              ? <View style={{ width: 132, height: 132, borderRadius: 12, backgroundColor: '#192840', alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 30 }}>▶</Text><Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>VIDEO</Text></View>
+              : <Image source={{ uri: asset.uri }} style={{ width: 132, height: 132, borderRadius: 12 }} resizeMode="cover" />}
             <View style={{ position: 'absolute', left: 7, top: 7, backgroundColor: '#090D18CC', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 4 }}>
               <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>{index + 1}</Text>
             </View>
           </View>
-          <TouchableOpacity onPress={() => setSelectedImages(items => items.filter((_, itemIndex) => itemIndex !== index))} style={styles.removeImageButton}>
+          <TouchableOpacity onPress={() => setSelectedMedia(items => items.filter((_, itemIndex) => itemIndex !== index))} style={styles.removeImageButton}>
             <Text style={styles.removeImageText}>Remove</Text>
           </TouchableOpacity>
         </View>)}
@@ -837,13 +854,14 @@ function CreateScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <TouchableOpacity disabled={publishing || (!caption.trim() && selectedImages.length === 0)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && selectedImages.length === 0)) && styles.publishButtonDisabled]}>
+      <TouchableOpacity disabled={publishing || (!caption.trim() && selectedMedia.length === 0)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && selectedMedia.length === 0)) && styles.publishButtonDisabled]}>
         <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
       </TouchableOpacity>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
   </View>;
 }
+
 function MessageVideo({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, instance => { instance.loop = false; });
   return <VideoView player={player} style={{ width: 230, height: 180, borderRadius: 10 }} contentFit="contain" nativeControls />;
