@@ -119,11 +119,11 @@ export async function createPostWithMedia(input: {
         ? 'Use JPEG, PNG, or WebP photos.'
         : 'Use MP4, MOV, or WebM videos.');
     }
-    const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+    const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
     if (item.fileSize !== null && item.fileSize > maxBytes) {
       throw new Error(mediaType === 'image'
         ? 'Each photo must be smaller than 10 MB.'
-        : 'Each video must be smaller than 100 MB.');
+        : 'Each video must be smaller than 50 MB.');
     }
     if (mediaType === 'video' && item.durationSeconds != null && item.durationSeconds > 180) {
       throw new Error('Feed videos must be 3 minutes or shorter.');
@@ -148,9 +148,9 @@ export async function createPostWithMedia(input: {
       const response = await fetch(item.uri);
       if (!response.ok) throw new Error('Could not read a selected media file from your device.');
       const fileBody = await response.arrayBuffer();
-      const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 100 * 1024 * 1024;
+      const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
       if (fileBody.byteLength > maxBytes) {
-        throw new Error(mediaType === 'image' ? 'Each photo must be smaller than 10 MB.' : 'Each video must be smaller than 100 MB.');
+        throw new Error(mediaType === 'image' ? 'Each photo must be smaller than 10 MB.' : 'Each video must be smaller than 50 MB.');
       }
 
       const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
