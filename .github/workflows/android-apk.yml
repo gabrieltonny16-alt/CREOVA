@@ -1,0 +1,93 @@
+name: CREOVA Android APK
+
+on:
+  push:
+    branches:
+      - rebuild/fresh-social-platform
+      - rebuild/android-bottom-safe-area
+      - rebuild/messaging-media-voice
+    paths:
+      - .github/workflows/android-apk.yml
+      - .github/workflows/ci.yml
+      - assets/**
+      - App.tsx
+      - app.json
+      - eas.json
+      - package.json
+      - src/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-apk:
+    name: Build installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      EXPO_NO_TELEMETRY: "1"
+    steps:
+      - name: Check out CREOVA
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK platform
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check TypeScript
+        run: npm run typecheck
+
+      - name: Generate native Android project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Restore Gradle dependency cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper/dists
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties', 'gradle/libs.versions.toml') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Install Gradle from distribution host
+        run: |
+          curl --fail --location --retry 8 --retry-all-errors --retry-delay 10 --connect-timeout 30 --max-time 600 \
+            https://downloads.gradle.org/distributions/gradle-9.4.1-bin.zip \
+            --output /tmp/gradle-9.4.1-bin.zip
+          mkdir -p "$HOME/gradle"
+          unzip -q /tmp/gradle-9.4.1-bin.zip -d "$HOME/gradle"
+          echo "$HOME/gradle/gradle-9.4.1/bin" >> "$GITHUB_PATH"
+
+      - name: Build installable release APK with bundled JavaScript
+        run: |
+          cd android
+          gradle --no-daemon assembleRelease
+          test -s app/build/outputs/apk/release/app-release.apk
+          find app/build -type f -name index.android.bundle -size +0c | grep -q .
+
+      - name: Upload installable release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: creova-android-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
