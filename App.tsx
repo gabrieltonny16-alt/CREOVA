@@ -13,7 +13,7 @@ import type { CreovaStory } from './src/features/stories/storyService';
 import {
   getMyConversations, getConversationMessages, createConversation, sendMessage,
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
-  subscribeToConversationMessages, subscribeToInboxChanges,
+  subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
 } from './src/features/messaging/messageService';
 import type { CreovaConversation, CreovaMessage } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
@@ -840,6 +840,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const [threadLoading, setThreadLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [draft, setDraft] = useState('');
+  const [draftClientId, setDraftClientId] = useState<string | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
@@ -890,6 +891,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     setActiveConversation(item);
     setThreadMessages([]);
     setDraft('');
+    setDraftClientId(null);
     setThreadLoading(true);
     setConnectionStatus('CONNECTING');
     try {
@@ -977,9 +979,12 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
     setBusyId('send');
     setMessage('');
     try {
-      const sent = await sendMessage(activeConversation.id, draft);
+      const clientMessageId = draftClientId ?? createMessageClientId();
+      setDraftClientId(clientMessageId);
+      const sent = await sendMessage(activeConversation.id, draft, clientMessageId);
       setThreadMessages(items => items.some(item => item.id === sent.id) ? items : [...items, sent]);
       setDraft('');
+      setDraftClientId(null);
       await loadMessaging();
       const updated = (await getMyConversations()).find(item => item.id === activeConversation.id);
       if (updated) setActiveConversation(updated);
@@ -1265,7 +1270,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
             <TouchableOpacity disabled={busyId === 'request'} onPress={() => void answerMessageRequest(false)} style={styles.declineRequestButton}><Text style={styles.declineRequestText}>Decline</Text></TouchableOpacity>
           </View>
         </View>}
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14, gap: 9, flexGrow: 1, justifyContent: 'flex-end' }}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14, gap: 9, flexGrow: 1, justifyContent: 'flex-end' }} refreshControl={<RefreshControl refreshing={threadLoading} onRefresh={() => { if (!activeConversation) return; setThreadLoading(true); void getConversationMessages(activeConversation.id).then(setThreadMessages).catch(error => setMessage(error instanceof Error ? error.message : 'Could not refresh messages.')).finally(() => setThreadLoading(false)); }} tintColor={COLORS.blue} colors={[COLORS.blue]} />}>
           {threadLoading && <EmptyState title="Loading conversation" description="Recovering the latest messages." />}
           {!threadLoading && !threadMessages.length && <EmptyState title="Say hello" description="This conversation is ready. Send the first message to begin." />}
           {threadMessages.map(item => {
@@ -1281,7 +1286,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
         {waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>Your message request has been sent. You can continue once the other participant accepts.</Text>}
         {activeConversation?.membershipStatus === 'accepted' && !canCompose && !waitingForReply && <Text style={[styles.notice, { padding: 13 }]}>This conversation is waiting for the invited participants to accept.</Text>}
         {canCompose && <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 12, borderTopWidth: 1, borderTopColor: COLORS.border }}>
-          <TextInput value={draft} onChangeText={setDraft} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
+          <TextInput value={draft} onChangeText={value => { if (value !== draft) setDraftClientId(null); setDraft(value); }} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
           <TouchableOpacity disabled={!draft.trim() || busyId === 'send'} onPress={() => void submitMessage()} style={{ minHeight: 44, borderRadius: 22, paddingHorizontal: 16, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: !draft.trim() || busyId === 'send' ? 0.5 : 1 }}>
             <Text style={styles.publishButtonText}>{busyId === 'send' ? '…' : 'Send'}</Text>
           </TouchableOpacity>
