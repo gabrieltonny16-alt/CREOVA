@@ -641,6 +641,17 @@ function DiscoverScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }
   }
 
   const term = query.trim().toLowerCase();
+  const topicCounts = new Map<string, number>();
+  posts.forEach(post => {
+    const tags = post.caption.match(/#[A-Za-z0-9_]+/g) ?? [];
+    new Set(tags.map(tag => tag.slice(1).toLowerCase())).forEach(tag => {
+      topicCounts.set(tag, (topicCounts.get(tag) ?? 0) + 1);
+    });
+  });
+  const trendingTopics = [...topicCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([tag]) => tag);
   const visiblePosts = posts.filter(post => !term || post.caption.toLowerCase().includes(term)
     || (post.author?.username ?? '').toLowerCase().includes(term)
     || (post.author?.display_name ?? '').toLowerCase().includes(term));
@@ -654,6 +665,14 @@ function DiscoverScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }
         <Text style={{ color: mode === item ? COLORS.text : COLORS.muted, fontWeight: '800', fontSize: 12 }}>{item === 'posts' ? 'Posts & videos' : 'People'}</Text>
       </TouchableOpacity>)}
     </View>
+    {mode === 'posts' && trendingTopics.length > 0 && <>
+      <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, marginBottom: 8 }}>TRENDING TOPICS</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 14 }}>
+        {trendingTopics.map(tag => <TouchableOpacity key={tag} onPress={() => setQuery(`#${tag}`)} style={{ paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18, backgroundColor: term === `#${tag}` ? COLORS.accentSoft : COLORS.surface, borderWidth: 1, borderColor: term === `#${tag}` ? COLORS.blue : COLORS.border }}>
+          <Text style={{ color: COLORS.text, fontSize: 11, fontWeight: '700' }}>#{tag}</Text>
+        </TouchableOpacity>)}
+      </ScrollView>
+    </>}
     {!!message && <Text style={styles.notice}>{message}</Text>}
     {mode === 'people' ? <>
       {busy && <Text style={styles.notice}>Searching…</Text>}
