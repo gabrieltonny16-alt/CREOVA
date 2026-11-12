@@ -172,7 +172,7 @@ export async function getConversationMessages(conversationId: string): Promise<C
 export async function searchConversationMessages(conversationId: string, query: string): Promise<CreovaMessage[]> {
   const term = query.trim();
   if (term.length < 2) return [];
-  const escaped = term.replace(/[\\%_]/g, '\\export async function createConversation(input: {');
+  const escaped = term.replace(/[\\%_]/g, '\\$&');
   const { data, error } = await requireSupabase()
     .from('conversation_messages')
     .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
