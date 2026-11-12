@@ -64,6 +64,32 @@ export async function searchProfiles(search: string): Promise<Pick<CreovaProfile
   return data ?? [];
 }
 
+export async function getSuggestedCreators(): Promise<Pick<CreovaProfile, 'id' | 'username' | 'display_name' | 'avatar_url' | 'is_private'>[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  // Give recently joined public creators a discovery surface without ranking by follower count.
+  const { data: profiles, error } = await client.from('profiles')
+    .select('id, username, display_name, avatar_url, is_private')
+    .eq('is_private', false)
+    .neq('id', auth.user.id)
+    .order('created_at', { ascending: false })
+    .limit(40);
+  if (error) throw error;
+  if (!profiles?.length) return [];
+
+  const { data: relationships, error: relationshipError } = await client.from('user_follows')
+    .select('following_id')
+    .eq('follower_id', auth.user.id)
+    .in('following_id', profiles.map(profile => profile.id));
+  if (relationshipError) throw relationshipError;
+
+  const alreadyConnected = new Set((relationships ?? []).map(row => row.following_id));
+  return profiles.filter(profile => !alreadyConnected.has(profile.id)).slice(0, 12);
+}
+
 export type FollowState = 'none' | 'requested' | 'following';
 
 export async function getFollowStates(targetUserIds: string[]): Promise<Record<string, FollowState>> {
