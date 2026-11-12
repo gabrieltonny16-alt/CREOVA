@@ -12,9 +12,6 @@ create table if not exists public.conversation_message_reactions (
 create index if not exists conversation_message_reactions_conversation_message_idx
   on public.conversation_message_reactions (conversation_id, message_id);
 
-create index if not exists conversation_message_reactions_user_id_idx
-  on public.conversation_message_reactions (user_id);
-
 alter table public.conversation_message_reactions enable row level security;
 revoke all on public.conversation_message_reactions from anon, authenticated;
 grant select, insert, update, delete on public.conversation_message_reactions to authenticated;
