@@ -28,7 +28,7 @@ Do not mark a feature complete based only on a visible screen or button. Complet
 - Stories publishing/viewing, progress, pause/resume, and left/right navigation.
 - Direct/group conversations, message requests, image/video/audio/voice-note attachments, realtime inbox updates, read receipts, and in-conversation message search.
 - Signup email-confirmation deep-link handling.
-- Versioned Supabase migrations and RLS/storage policies for social, Stories, and messaging data. The 27 repository migration filenames/versions now match the 27 already applied to CREOVA-DEV one-to-one.
+- Versioned Supabase migrations and RLS/storage policies for social, Stories, and messaging data. The 28 repository migration filenames/versions now match the 28 already applied to CREOVA-DEV one-to-one, including indexes for social-reaction and Story participant foreign keys.
 
 **Automated validation:** the integrated source has passed dependency installation, Expo compatibility, TypeScript, and web export checks on the consolidated branch.
 
