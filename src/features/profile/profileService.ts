@@ -155,3 +155,46 @@ export async function uploadMyAvatar(
 
   return data as CreovaProfile;
 }
+
+export type CreovaPublicProfile = Pick<
+  CreovaProfile,
+  'id' | 'username' | 'display_name' | 'bio' | 'avatar_url' | 'is_private'
+> & {
+  followers: number;
+  following: number;
+  follow_state: 'not_following' | 'pending' | 'accepted' | 'rejected';
+};
+
+export type CreovaConnection = Pick<
+  CreovaProfile,
+  'id' | 'username' | 'display_name' | 'avatar_url' | 'is_private'
+>;
+
+export async function getProfileByUsername(username: string): Promise<CreovaPublicProfile> {
+  const { data, error } = await requireSupabase()
+    .rpc('get_creova_profile_overview', { target_username: username.trim().toLowerCase() });
+  if (error) throw error;
+  const profile = Array.isArray(data) ? data[0] : data;
+  if (!profile) throw new Error('CREOVA profile not found.');
+  return profile as CreovaPublicProfile;
+}
+
+export async function getProfileConnections(
+  profileId: string,
+  type: 'followers' | 'following',
+): Promise<CreovaConnection[]> {
+  const { data, error } = await requireSupabase()
+    .rpc('get_creova_profile_connections', {
+      target_profile_id: profileId,
+      connection_type: type,
+    });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.user_id,
+    username: row.username,
+    display_name: row.display_name,
+    avatar_url: row.avatar_url,
+    is_private: row.is_private,
+  }));
+}
+
