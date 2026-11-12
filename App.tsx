@@ -56,7 +56,6 @@ const COLORS = {
 
 const TABS: { key: Tab; symbol: string; label: string }[] = [
   { key: 'Home', symbol: '⌂', label: 'Home' },
-  { key: 'Discover', symbol: '⌕', label: 'Explore' },
   { key: 'Create', symbol: '+', label: 'Create' },
   { key: 'Inbox', symbol: '✉', label: 'Inbox' },
   { key: 'Profile', symbol: '◉', label: 'Profile' },
@@ -130,7 +129,7 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
-function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void }) {
+function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator, onOpenDiscover }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void; onOpenDiscover: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
   const [refreshing, setRefreshing] = useState(false);
@@ -345,6 +344,12 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
 
   return (
     <View style={styles.screenContent}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, paddingVertical: 7, marginBottom: 4 }}>
+        <Text style={{ color: COLORS.text, fontSize: 21, fontWeight: '900', letterSpacing: 1.2 }}>CREOVA</Text>
+        <TouchableOpacity onPress={onOpenDiscover} accessibilityRole="button" accessibilityLabel="Search and explore CREOVA" style={{ width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: COLORS.text, fontSize: 27, lineHeight: 30 }}>⌕</Text>
+        </TouchableOpacity>
+      </View>
       <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5, gap: 8 }]}>
         {(['following', 'for-you'] as const).map(mode => {
           const active = feedMode === mode;
@@ -2274,7 +2279,7 @@ function MainApp() {
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
       case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenDiscover={() => setActiveTab('Discover')} />;
     }
   };
 
