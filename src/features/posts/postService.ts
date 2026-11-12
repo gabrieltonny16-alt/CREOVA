@@ -358,20 +358,48 @@ export async function getForYouFeed(): Promise<CreovaFeedPost[]> {
   // The posts_select_visible RLS policy is the privacy boundary:
   // public posts from public profiles are discoverable; private/followers-only
   // content remains hidden unless the signed-in user is authorized.
-  const [postsResult, savedResult] = await Promise.all([
+  const [postsResult, savedResult, followsResult, likesResult] = await Promise.all([
     client.from('posts').select(FEED_POST_SELECT)
       .eq('visibility', 'public')
       .neq('author_id', auth.user.id)
       .order('created_at', { ascending: false })
       .limit(50),
     client.from('post_saves').select('post_id').eq('user_id', auth.user.id),
+    client.from('user_follows').select('following_id').eq('follower_id', auth.user.id).eq('status', 'accepted'),
+    client.from('post_likes').select('post_id').eq('user_id', auth.user.id),
   ]);
   if (postsResult.error) throw postsResult.error;
   if (savedResult.error) throw savedResult.error;
+  if (followsResult.error) throw followsResult.error;
+  if (likesResult.error) throw likesResult.error;
 
+  const likedPostIds = [...new Set((likesResult.data ?? []).map(row => row.post_id))].slice(0, 100);
+  let likedAuthorIds = new Set<string>();
+  if (likedPostIds.length) {
+    const { data: likedPosts, error: likedPostsError } = await client.from('posts')
+      .select('author_id').in('id', likedPostIds);
+    if (likedPostsError) throw likedPostsError;
+    likedAuthorIds = new Set((likedPosts ?? []).map(row => row.author_id));
+  }
+
+  const followedAuthorIds = new Set((followsResult.data ?? []).map(row => row.following_id));
   const hydrated = await hydrateFeedPosts((postsResult.data ?? []) as unknown as RawFeedPost[], auth.user.id);
   const savedIds = new Set((savedResult.data ?? []).map(row => row.post_id));
-  return hydrated.map(post => ({ ...post, savedByMe: savedIds.has(post.id) }));
+  const now = Date.now();
+
+  // Rank with signals the app actually has today: creator affinity, follows,
+  // engagement, and recency. We do not pretend to use watch-time or view data.
+  return hydrated.map(post => ({ ...post, savedByMe: savedIds.has(post.id) }))
+    .map(post => {
+      const ageHours = Math.max(0, (now - new Date(post.created_at).getTime()) / 3_600_000);
+      const freshness = 4 / (1 + ageHours / 24);
+      const engagement = Math.log1p(post.likeCount) * 1.2 + Math.log1p(post.commentCount) * 1.8;
+      const followedCreator = followedAuthorIds.has(post.author_id) ? 1.5 : 0;
+      const likedCreator = likedAuthorIds.has(post.author_id) ? 3.5 : 0;
+      return { post, score: freshness + engagement + followedCreator + likedCreator };
+    })
+    .sort((a, b) => b.score - a.score || new Date(b.post.created_at).getTime() - new Date(a.post.created_at).getTime())
+    .map(item => item.post);
 }
 
 export async function getPostById(postId: string): Promise<CreovaFeedPost> {
