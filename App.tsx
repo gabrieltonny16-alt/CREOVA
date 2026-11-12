@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, getMyFollowList, getPublicProfile, getPublicProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, getMyFollowList, getPublicProfile, getPublicProfileCounts, searchProfiles, getSuggestedCreators, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile, FollowListEntry } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
@@ -654,9 +654,25 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
   useEffect(() => {
     const term = query.trim();
     let active = true;
-    if (mode !== 'people' || term.length < 2) {
+    if (mode !== 'people') {
       setResults([]);
-      if (mode === 'people') { setMessage(''); setBusy(false); }
+      setBusy(false);
+      return () => { active = false; };
+    }
+    if (term.length < 2) {
+      setMessage('');
+      setBusy(true);
+      void (async () => {
+        try {
+          const profiles = await getSuggestedCreators();
+          const states = await getFollowStates(profiles.map(item => item.id));
+          if (active) setResults(profiles.map(item => ({ ...item, followState: states[item.id] ?? 'none' })));
+        } catch (error) {
+          if (active) setMessage(error instanceof Error ? error.message : 'Could not load new creators.');
+        } finally {
+          if (active) setBusy(false);
+        }
+      })();
       return () => { active = false; };
     }
     const timer = setTimeout(async () => {
@@ -730,7 +746,8 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
     </>}
     {!!message && <Text style={styles.notice}>{message}</Text>}
     {mode === 'people' ? <>
-      {busy && <Text style={styles.notice}>Searching…</Text>}
+      {query.trim().length < 2 && <Text style={{ color: COLORS.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.8, marginBottom: 8 }}>NEW CREATORS TO DISCOVER</Text>}
+      {busy && <Text style={styles.notice}>{query.trim().length < 2 ? 'Finding new creators…' : 'Searching…'}</Text>}
       {results.map(item => <View key={item.id} style={styles.resultRow}>
         <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
         <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
@@ -738,7 +755,7 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
           <Text style={styles.followButtonText}>{busyFollowId === item.id ? '…' : item.followState === 'requested' ? 'Requested · Cancel' : item.followState === 'following' ? 'Following · Unfollow' : 'Follow'}</Text>
         </TouchableOpacity>
       </View>)}
-      {query.trim().length < 2 && <EmptyState title="Find people to follow" description="Search by username to find creators and connect with them." />}
+      {query.trim().length < 2 && !busy && results.length === 0 && <EmptyState title="No new creators yet" description="New public creators will appear here as they join CREOVA. You can also search for a username above." />}
       {query.trim().length >= 2 && !busy && !message && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
     </> : <>
       {postsBusy && <Text style={styles.notice}>Loading posts and videos…</Text>}
