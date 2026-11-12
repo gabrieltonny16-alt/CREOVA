@@ -104,7 +104,6 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   const [replyTo, setReplyTo] = useState<CreovaPostComment | null>(null);
   const [commentBusy, setCommentBusy] = useState(false);
   const [commentMessage, setCommentMessage] = useState('');
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   async function openComments(post: CreovaFeedPost) {
     setCommentPost(post);
@@ -640,7 +639,6 @@ function CreateScreen() {
       <TouchableOpacity disabled={publishing || (!caption.trim() && selectedMedia.length === 0)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && selectedMedia.length === 0)) && styles.publishButtonDisabled]}>
         <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
       </TouchableOpacity>
-      <StoriesSection />
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
   </View>;
@@ -1275,6 +1273,7 @@ function StoriesSection() {
   const [storyReplyDraft, setStoryReplyDraft] = useState('');
   const [storyViewers, setStoryViewers] = useState<Awaited<ReturnType<typeof getMyStoryViewers>>>([]);
   const [viewersOpen, setViewersOpen] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const activeStoryGroup = activeStoryOwnerId
     ? stories.filter(item => item.user_id === activeStoryOwnerId)
     : [];
@@ -1370,10 +1369,12 @@ function StoriesSection() {
       const nextIndex = activeStoryIndex + 1;
       setActiveStoryIndex(nextIndex);
       const next = activeStoryGroup[nextIndex];
-      try {
-        await markStoryViewed(next.id);
-        setStories(items => items.map(item => item.id === next.id ? { ...item, viewedByMe: true } : item));
-      } catch { /* Keep the viewer moving if view tracking is temporarily unavailable. */ }
+      if (next.user_id !== currentUserId) {
+        try {
+          await markStoryViewed(next.id);
+          setStories(items => items.map(item => item.id === next.id ? { ...item, viewedByMe: true } : item));
+        } catch { /* Keep the viewer moving if view tracking is temporarily unavailable. */ }
+      }
     } else {
       setActiveStoryOwnerId(null);
       setViewersOpen(false);
@@ -1772,6 +1773,7 @@ function ProfileScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      <StoriesSection />
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
       {editing && <View style={styles.profileEditorCard}>
         <Text style={styles.editLabel}>DISPLAY NAME</Text>
