@@ -51,7 +51,7 @@ Only after parity and improvement foundations are working, finalize and build th
 
 - TypeScript, Expo dependency compatibility, and Web export must pass.
 - Android and Web workflows must be exercised on supported real devices/browsers.
-- Supabase migrations must be applied only to the intended development project, then verified with test accounts and RLS/storage tests.
+- The 27 repository migrations now match the 27 migrations already applied to CREOVA-DEV. Verify that history before future schema changes; add and test only new migrations, then run authenticated RLS/storage tests.
 - Test privacy boundaries using multiple accounts and public/private profiles.
 - Verify failure, retry, offline, loading, empty, and permission-denied states.
 - Record unverified native/runtime behavior honestly; never claim success based only on CI.
