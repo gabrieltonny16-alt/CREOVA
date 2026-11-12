@@ -221,7 +221,11 @@ function PublicProfileScreen({ username, onBack, onOpenProfile }: {
     }
   }
 
-  useEffect(() => { loadProfile(); }, [username]);
+  useEffect(() => {
+    setConnectionType(null);
+    setConnections([]);
+    loadProfile();
+  }, [username]);
 
   async function toggleFollow() {
     if (!profile) return;
