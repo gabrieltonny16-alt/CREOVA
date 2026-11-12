@@ -1652,15 +1652,18 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <Text style={styles.resultName}>{activeConversation ? conversationTitle(activeConversation) : 'Conversation'}</Text>
             <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}{showActivityStatus && onlineParticipants.length > 0 ? ` · ${onlineParticipants.length === 1 ? 'Active now' : `${onlineParticipants.length} active`}` : ''}</Text>
           </View>
-          {activeConversation?.membershipStatus === 'accepted' && <Switch
-            value={showActivityStatus}
-            onValueChange={value => void changeActivityStatusVisibility(value)}
-            disabled={activityStatusSaving}
-            accessibilityRole="switch"
-            accessibilityLabel="Show activity status"
-            trackColor={{ false: '#526078', true: '#315F9D' }}
-            thumbColor={showActivityStatus ? '#A7C6FF' : '#D5DCE8'}
-          />}
+          {activeConversation?.membershipStatus === 'accepted' && <View style={{ alignItems: 'center', gap: 1 }}>
+            <Text style={{ color: COLORS.muted, fontSize: 8, fontWeight: '800' }}>ACTIVITY</Text>
+            <Switch
+              value={showActivityStatus}
+              onValueChange={value => void changeActivityStatusVisibility(value)}
+              disabled={activityStatusSaving}
+              accessibilityRole="switch"
+              accessibilityLabel="Show activity status"
+              trackColor={{ false: '#526078', true: '#315F9D' }}
+              thumbColor={showActivityStatus ? '#A7C6FF' : '#D5DCE8'}
+            />
+          </View>}
           <TouchableOpacity
             onPress={() => {
               setMessageSearchOpen(value => !value);
