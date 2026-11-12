@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -330,6 +330,7 @@ function ProfileScreen() {
   const [isPrivate, setIsPrivate] = useState(false);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -347,6 +348,37 @@ function ProfileScreen() {
     });
     return () => { active = false; };
   }, []);
+
+  async function chooseAvatar() {
+    setNotice('');
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const mimeType = asset.mimeType;
+      if (!mimeType || !['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+        setNotice('Choose a JPEG, PNG, or WebP image.');
+        return;
+      }
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        setNotice('Choose an image smaller than 5 MB.');
+        return;
+      }
+      setUploadingAvatar(true);
+      const updated = await uploadMyAvatar(asset.uri, mimeType as 'image/jpeg' | 'image/png' | 'image/webp');
+      setProfile(updated);
+      setNotice('Your profile photo has been updated.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not upload your profile photo.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
 
   async function saveProfile() {
     if (!displayName.trim()) {
@@ -379,7 +411,8 @@ function ProfileScreen() {
     <Text style={styles.eyebrow}>YOUR CREOVA IDENTITY</Text>
     <Text style={styles.heading}>Profile</Text>
     {profile ? <View style={styles.profileCard}>
-      <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
+      {profile.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatar} /> : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>}
+      <TouchableOpacity disabled={uploadingAvatar} onPress={chooseAvatar} style={styles.avatarChangeButton}><Text style={styles.avatarChangeText}>{uploadingAvatar ? 'Uploading photo…' : 'Change profile photo'}</Text></TouchableOpacity>
       <Text style={styles.profileName}>{profile.display_name}</Text>
       <Text style={styles.profileHandle}>@{profile.username}</Text>
       <View style={styles.profileStats}>
@@ -557,6 +590,8 @@ const styles = StyleSheet.create({
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
+  avatarChangeButton: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 10, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C' },
+  avatarChangeText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   profileName: { color: COLORS.text, fontSize: 17, fontWeight: '800' },
   profileCopy: { color: COLORS.muted, fontSize: 12, lineHeight: 19, textAlign: 'center', maxWidth: 370 },
   bottomNav: { height: 66, paddingBottom: 5, borderTopWidth: 1, borderTopColor: COLORS.border, backgroundColor: COLORS.background, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around' },
