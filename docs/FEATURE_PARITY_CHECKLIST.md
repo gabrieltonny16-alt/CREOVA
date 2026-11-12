@@ -4,8 +4,8 @@
 
 **Product decision:** CREOVA is intended to provide the broad functionality users expect from both platforms, improve weaknesses in those experiences, and later add original CREOVA capabilities. This checklist does not approve or define the final CREOVA-exclusive feature set.
 
-**Working branch at audit start:** `rebuild/android-bottom-safe-area`  
-**Audit date:** 2026-11-09  
+**Historical working branch:** `rebuild/android-bottom-safe-area`  
+**Initial audit date:** 2026-11-09  
 **Audit type:** Preliminary source inspection. No end-to-end runtime verification was performed as part of this checklist creation.
 
 ## Status legend
@@ -16,6 +16,26 @@
 - [?] **Needs verification:** Source or backend behavior must be inspected and tested before status can be upgraded.
 
 Do not mark a feature complete based only on a visible screen or button. Completion requires UI, backend persistence, server-side authorization, validation, error/retry behavior, accessibility, Android/Web behavior, and automated tests.
+
+## Latest implementation snapshot — 2026-11-12
+
+**Important:** The detailed tables below preserve the original 2026-11-09 preliminary audit. Their initial statuses are historical and must not be read as the current state. The following source-level capabilities have since been added or expanded:
+
+- Identity, profile editing, public/private profiles, follow requests, and creator profile access controls.
+- Photo/video posts, likes, comments/replies, reactions, reposts, saves, and pinned posts.
+- Following and For You feeds, creator-affinity ranking, vertical short-video playback, mute/pause controls, and adjacent clip initialization.
+- Explore search entry, public post/video discovery, topic chips, and video previews.
+- Stories publishing/viewing, progress, pause/resume, and left/right navigation.
+- Direct/group conversations, message requests, image/video/audio/voice-note attachments, realtime inbox updates, read receipts, and in-conversation message search.
+- Signup email-confirmation deep-link handling.
+- Versioned Supabase migrations and RLS/storage policies for social, Stories, and messaging data.
+
+**Automated validation:** the integrated source has passed dependency installation, Expo compatibility, TypeScript, and web export checks on the consolidated branch.
+
+**Not yet established by those checks:** applying the migrations to the intended CREOVA-DEV project; authenticated multi-account RLS/storage tests; successful email delivery and callback on real devices; native Android media/gesture behavior; full Android/Web end-to-end tests; and complete production readiness.
+
+The checklist remains open. Source presence is not runtime completion, and no feature should be marked fully complete until its relevant tests pass.
+
 
 ---
 
@@ -274,4 +294,4 @@ This is a preliminary audit, not a complete codebase or database security review
 7. **LIVE and advanced creator/business tools:** only after architecture, moderation and operational readiness; monetization and paid activation remain approval-gated.
 8. **Parity verification:** feature-by-feature acceptance tests on Android and Web, security/abuse tests, performance and accessibility.
 
-**Rule:** This document tracks parity scope and evidence. It does not authorize paid services, live payments, external messaging, ad spend, or production cutover. Keep work on the development branch; do not modify or merge into `main` without explicit approval.
+**Rule:** This document tracks parity scope and evidence. It does not authorize paid services, live payments, external messaging, ad spend, or production cutover. Integrate routine feature work after its required checks pass. Keep production deployment, paid services, live payments, external messaging, and destructive data changes behind explicit authorization.
