@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { ViewToken } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -607,7 +606,7 @@ function ExploreVideoPreview({ uri }: { uri: string }) {
         player.pause();
       }}
     />
-    {!frameRendered && <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111D31' }}>
+    {!frameRendered && <View style={{ ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111D31' }}>
       <Text style={{ color: COLORS.text, fontSize: 27 }}>▶</Text>
       <Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text>
     </View>}
@@ -626,7 +625,7 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
   const [visibleVideoIds, setVisibleVideoIds] = useState<Set<string>>(new Set());
   const { height: windowHeight } = useWindowDimensions();
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: any[] }) => {
     setVisibleVideoIds(new Set(viewableItems
       .filter(item => item.isViewable)
       .map(item => (item.item as CreovaFeedPost).id)));
