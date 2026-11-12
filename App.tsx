@@ -16,6 +16,7 @@ import {
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId, setMessageReaction,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
   getShowActivityStatusPreference, updateShowActivityStatusPreference, subscribeToConversationPresence,
+  editConversationMessage, deleteConversationMessage,
 } from './src/features/messaging/messageService';
 import type { CreovaConversation, CreovaMessage, MessageAttachmentInput, MessageReactionEmoji, ConversationPresenceMember, ConversationPresenceSubscription } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
@@ -940,6 +941,9 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [activeConversation, setActiveConversation] = useState<CreovaConversation | null>(null);
   const [threadMessages, setThreadMessages] = useState<CreovaMessage[]>([]);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState('');
+  const [editingMessageDraft, setEditingMessageDraft] = useState('');
+  const [deleteConfirmMessageId, setDeleteConfirmMessageId] = useState('');
   const [threadLoading, setThreadLoading] = useState(false);
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
@@ -1078,7 +1082,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   }, [activeConversation?.id]);
 
   useEffect(() => {
-    if (!activeConversation || activeConversation.membershipStatus !== 'accepted' || !currentUserId) {
+    if (!activeConversation || activeConversation.membershipStatus !== 'accepted' || !currentUserId || !showActivityStatus) {
       setPresenceMembers([]);
       return;
     }
@@ -1097,12 +1101,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       subscription.unsubscribe();
       setPresenceMembers([]);
     };
-  }, [activeConversation?.id, activeConversation?.membershipStatus, currentUserId]);
-
-  useEffect(() => {
-    presenceSubscriptionRef.current?.setVisible(showActivityStatus);
-    if (!showActivityStatus) setPresenceMembers([]);
-  }, [showActivityStatus]);
+  }, [activeConversation?.id, activeConversation?.membershipStatus, currentUserId, showActivityStatus]);
 
   useEffect(() => {
     setReactionPickerMessageId('');
@@ -1194,12 +1193,60 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     }
   }
 
+  function beginEditMessage(item: CreovaMessage) {
+    if (!item.body || item.deleted_at || item.sender_id !== currentUserId) return;
+    setEditingMessageId(item.id);
+    setEditingMessageDraft(item.body);
+    setDeleteConfirmMessageId('');
+    setReactionPickerMessageId('');
+  }
+
+  function cancelEditMessage() {
+    setEditingMessageId('');
+    setEditingMessageDraft('');
+  }
+
+  async function saveEditedMessage(item: CreovaMessage) {
+    if (!activeConversation || editingMessageId !== item.id || !editingMessageDraft.trim() || busyId) return;
+    setBusyId(`edit:${item.id}`);
+    setMessage('');
+    try {
+      await editConversationMessage(item.id, editingMessageDraft);
+      setEditingMessageId('');
+      setEditingMessageDraft('');
+      setThreadMessages(await getConversationMessages(activeConversation.id));
+      await loadMessaging();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not edit this message.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
+  async function deleteMessage(item: CreovaMessage) {
+    if (!activeConversation || item.sender_id !== currentUserId || item.deleted_at || busyId) return;
+    setBusyId(`delete:${item.id}`);
+    setMessage('');
+    try {
+      const mediaCleaned = await deleteConversationMessage(item.id);
+      setDeleteConfirmMessageId('');
+      setEditingMessageId('');
+      setEditingMessageDraft('');
+      setThreadMessages(await getConversationMessages(activeConversation.id));
+      await loadMessaging();
+      if (!mediaCleaned) setMessage('Message deleted. Its attachment is no longer accessible, but storage cleanup did not finish.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete this message.');
+    } finally {
+      setBusyId('');
+    }
+  }
+
   async function changeActivityStatusVisibility(nextValue: boolean) {
     setActivityStatusSaving(true);
     try {
       await updateShowActivityStatusPreference(nextValue);
       setShowActivityStatus(nextValue);
-      presenceSubscriptionRef.current?.setVisible(nextValue);
       if (!nextValue) setPresenceMembers([]);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not update activity status.');
@@ -1535,8 +1582,10 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
           const avatar = item.kind === 'group'
             ? item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url
             : item.participants.find(person => person.user_id !== currentUserId)?.profile?.avatar_url;
-          const preview = item.lastMessage?.body
-            || (item.lastMessage?.attachment_type === 'image' ? '📷 Photo' : item.lastMessage?.attachment_type === 'video' ? '▶ Video' : item.lastMessage?.attachment_type === 'audio' ? '🎤 Voice note' : null)
+          const preview = item.lastMessage?.deleted_at
+            ? 'Message deleted'
+            : item.lastMessage?.body
+              || (item.lastMessage?.attachment_type === 'image' ? '📷 Photo' : item.lastMessage?.attachment_type === 'video' ? '▶ Video' : item.lastMessage?.attachment_type === 'audio' ? '🎤 Voice note' : null)
             || (item.membershipStatus === 'pending' ? 'Message request · Review before replying' : item.participants.some(person => person.membership_status === 'pending') ? 'Waiting for people to accept' : 'No messages yet');
           return <TouchableOpacity key={item.id} onPress={() => void openConversation(item)} style={[styles.requestCard, { backgroundColor: item.unreadCount ? '#101827' : COLORS.surface, borderColor: item.unreadCount ? '#355B9C' : COLORS.border }]}>
             <View style={styles.resultAvatar}>
@@ -1733,13 +1782,20 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             const mine = item.sender_id === currentUserId;
             return <View key={item.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '86%', backgroundColor: mine ? '#173B70' : COLORS.surfaceRaised, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 10, gap: 5 }}>
               {!mine && <Text style={{ color: '#A7C6FF', fontSize: 9, fontWeight: '800' }}>{item.sender?.display_name || item.sender?.username || 'CREOVA member'}</Text>}
-              {!!item.body && <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>{item.body}</Text>}
-              {!!item.attachmentUrl && item.attachment_type === 'image' && <Image source={{ uri: item.attachmentUrl }} style={{ width: 230, height: 210, borderRadius: 10 }} resizeMode="cover" />}
-              {!!item.attachmentUrl && item.attachment_type === 'video' && <MessageVideo uri={item.attachmentUrl} />}
-              {!!item.attachmentUrl && item.attachment_type === 'audio' && <MessageAudio uri={item.attachmentUrl} />}
-              {!!item.attachment_path && !item.attachmentUrl && <Text style={{ color: COLORS.muted, fontSize: 11 }}>Attachment unavailable. Refresh to try again.</Text>}
+              {item.deleted_at ? <Text style={{ color: COLORS.muted, fontSize: 12, fontStyle: 'italic' }}>This message was deleted</Text> : editingMessageId === item.id ? <View style={{ minWidth: 220, gap: 8 }}>
+                <TextInput value={editingMessageDraft} onChangeText={setEditingMessageDraft} multiline maxLength={5000} accessibilityLabel="Edit message" style={{ minHeight: 74, maxHeight: 150, borderRadius: 10, borderWidth: 1, borderColor: COLORS.blue, backgroundColor: '#0B1322', color: COLORS.text, padding: 10, fontSize: 13, lineHeight: 19 }} />
+                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12 }}>
+                  <TouchableOpacity disabled={!!busyId} onPress={cancelEditMessage}><Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: '800' }}>Cancel</Text></TouchableOpacity>
+                  <TouchableOpacity disabled={!editingMessageDraft.trim() || !!busyId} onPress={() => void saveEditedMessage(item)}><Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '900' }}>{busyId === `edit:${item.id}` ? 'Saving…' : 'Save edit'}</Text></TouchableOpacity>
+                </View>
+              </View> : !!item.body && <Text style={{ color: COLORS.text, fontSize: 13, lineHeight: 19 }}>{item.body}</Text>}
+              {!item.deleted_at && !!item.attachmentUrl && item.attachment_type === 'image' && <Image source={{ uri: item.attachmentUrl }} style={{ width: 230, height: 210, borderRadius: 10 }} resizeMode="cover" />}
+              {!item.deleted_at && !!item.attachmentUrl && item.attachment_type === 'video' && <MessageVideo uri={item.attachmentUrl} />}
+              {!item.deleted_at && !!item.attachmentUrl && item.attachment_type === 'audio' && <MessageAudio uri={item.attachmentUrl} />}
+              {!item.deleted_at && !!item.attachment_path && !item.attachmentUrl && <Text style={{ color: COLORS.muted, fontSize: 11 }}>Attachment unavailable. Refresh to try again.</Text>}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7 }}>
                 <Text style={{ color: '#A8B6CC', fontSize: 9 }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                {!!item.edited_at && !item.deleted_at && <Text style={{ color: COLORS.muted, fontSize: 9 }}>Edited</Text>}
                 {mine && (() => {
                   const readers = (activeConversation?.participants ?? []).filter(person =>
                     person.user_id !== currentUserId &&
@@ -1752,7 +1808,16 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
                   return <Text style={{ color: '#83B8FF', fontSize: 9, fontWeight: '800' }}>{label}</Text>;
                 })()}
               </View>
-              {activeConversation?.membershipStatus === 'accepted' && <>
+              {activeConversation?.membershipStatus === 'accepted' && mine && !item.deleted_at && editingMessageId !== item.id && <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 13 }}>
+                {!!item.body && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Edit message" onPress={() => beginEditMessage(item)}><Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>Edit</Text></TouchableOpacity>}
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Delete message" onPress={() => { setDeleteConfirmMessageId(item.id); setReactionPickerMessageId(''); }}><Text style={{ color: '#FF9B9B', fontSize: 10, fontWeight: '800' }}>Delete</Text></TouchableOpacity>
+              </View>}
+              {deleteConfirmMessageId === item.id && <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 10, paddingTop: 2 }}>
+                <Text style={{ color: COLORS.muted, fontSize: 10 }}>Delete for everyone?</Text>
+                <TouchableOpacity disabled={!!busyId} onPress={() => setDeleteConfirmMessageId('')}><Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: '800' }}>Cancel</Text></TouchableOpacity>
+                <TouchableOpacity disabled={!!busyId} onPress={() => void deleteMessage(item)}><Text style={{ color: '#FF9B9B', fontSize: 10, fontWeight: '900' }}>{busyId === `delete:${item.id}` ? 'Deleting…' : 'Confirm'}</Text></TouchableOpacity>
+              </View>}
+              {activeConversation?.membershipStatus === 'accepted' && !item.deleted_at && <>
                 {(item.reactions ?? []).length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
                   {(item.reactions ?? []).map(reaction => <TouchableOpacity
                     key={reaction.emoji}
