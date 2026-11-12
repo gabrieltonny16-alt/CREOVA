@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, updateMyProfile } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -322,6 +322,7 @@ function InboxScreen() {
 
 function ProfileScreen() {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
+  const [profileStats, setProfileStats] = useState({ followers: 0, following: 0 });
   const [error, setError] = useState('');
   const [editing, setEditing] = useState(false);
   const [displayName, setDisplayName] = useState('');
@@ -338,6 +339,9 @@ function ProfileScreen() {
       setDisplayName(value.display_name);
       setBio(value.bio);
       setIsPrivate(value.is_private);
+      getMyProfileStats().then(setProfileStats).catch(statsError => {
+        if (active) setError(statsError instanceof Error ? statsError.message : 'Could not load profile stats.');
+      });
     }).catch(e => {
       if (active) setError(e instanceof Error ? e.message : 'Could not load your profile.');
     });
@@ -378,6 +382,11 @@ function ProfileScreen() {
       <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0,1).toUpperCase()}</Text></View>
       <Text style={styles.profileName}>{profile.display_name}</Text>
       <Text style={styles.profileHandle}>@{profile.username}</Text>
+      <View style={styles.profileStats}>
+        <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></View>
+        <View style={styles.profileStatDivider} />
+        <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></View>
+      </View>
       <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
       <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'PUBLIC ACCOUNT'}</Text>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
@@ -567,6 +576,11 @@ const styles = StyleSheet.create({
   followButton: { backgroundColor: COLORS.accentSoft, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   followButtonText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   profileHandle: { color: '#A7C6FF', fontSize: 12, fontWeight: '700' },
+  profileStats: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 26, paddingVertical: 9 },
+  profileStat: { alignItems: 'center', gap: 3 },
+  profileStatNumber: { color: COLORS.text, fontSize: 17, fontWeight: '900' },
+  profileStatLabel: { color: COLORS.muted, fontSize: 8, fontWeight: '800', letterSpacing: 1 },
+  profileStatDivider: { width: 1, height: 26, backgroundColor: COLORS.border },
   profilePrivacy: { color: COLORS.muted, fontSize: 9, letterSpacing: 1.4, fontWeight: '800' },
   profileEditor: { width: '100%', gap: 10, marginTop: 8 },
   editLabel: { color: '#AFC5E8', fontSize: 9, fontWeight: '800', letterSpacing: 1.4 },
