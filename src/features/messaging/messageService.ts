@@ -522,7 +522,7 @@ export function subscribeToConversationPresence(
   let visible = showActivityStatus;
   let typing = false;
   let subscribed = false;
-  const channel = client.channel(`creova:conversation:${conversationId}`, {
+  const channel = client.channel(`creova:conversation-presence:${conversationId}`, {
     config: {
       private: true,
       presence: { key: userId },
@@ -588,7 +588,7 @@ export function subscribeToConversationMessages(
   onReactionChange?: () => void,
 ): () => void {
   const client = requireSupabase();
-  const channel = client.channel(`creova:conversation:${conversationId}`, { config: { private: true } })
+  const channel = client.channel(`creova:conversation-messages:${conversationId}`, { config: { private: true } })
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
