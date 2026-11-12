@@ -21,6 +21,7 @@ import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ScrollView,
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   Image,
@@ -380,18 +381,10 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
             </View>
           )}
           {!loading && shortPosts.length > 0 && (
-            <ScrollView
-              style={{ height: shortFeedHeight }}
-              contentContainerStyle={{ paddingBottom: 0 }}
-              pagingEnabled
-              snapToInterval={shortFeedHeight}
-              decelerationRate="fast"
-              showsVerticalScrollIndicator={false}
-              nestedScrollEnabled
-              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadFeed(true)} tintColor="#FFFFFF" colors={[COLORS.blue]} />}
-              onMomentumScrollEnd={event => setActiveShortIndex(Math.max(0, Math.round(event.nativeEvent.contentOffset.y / shortFeedHeight)))}
-            >
-              {shortPosts.map((post, index) => {
+            <FlatList
+              data={shortPosts}
+              keyExtractor={post => post.id}
+              renderItem={({ item: post, index }) => {
                 const video = post.media?.find(media => media.mediaType === 'video');
                 if (!video) return null;
                 return (
@@ -448,8 +441,27 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
                     </View>
                   </View>
                 );
+              }}
+              style={{ height: shortFeedHeight }}
+              contentContainerStyle={{ paddingBottom: 0 }}
+              pagingEnabled
+              snapToInterval={shortFeedHeight}
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              initialNumToRender={2}
+              maxToRenderPerBatch={2}
+              windowSize={3}
+              updateCellsBatchingPeriod={40}
+              removeClippedSubviews={false}
+              getItemLayout={(_, index) => ({
+                length: shortFeedHeight,
+                offset: shortFeedHeight * index,
+                index,
               })}
-            </ScrollView>
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadFeed(true)} tintColor="#FFFFFF" colors={[COLORS.blue]} />}
+              onMomentumScrollEnd={event => setActiveShortIndex(Math.max(0, Math.round(event.nativeEvent.contentOffset.y / shortFeedHeight)))}
+            />
           )}
         </View>
       ) : posts.map(post => (
