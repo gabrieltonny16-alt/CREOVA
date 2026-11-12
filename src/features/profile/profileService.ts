@@ -113,3 +113,45 @@ export async function getMyProfileStats(): Promise<CreovaProfileStats> {
     following: followingResult.count ?? 0,
   };
 }
+
+
+export async function uploadMyAvatar(
+  localUri: string,
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp',
+): Promise<CreovaProfile> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error('You must be signed in.');
+
+  const extension = mimeType === 'image/png' ? 'png' : mimeType === 'image/webp' ? 'webp' : 'jpg';
+  const objectPath = userData.user.id + '/' + Date.now() + '.' + extension;
+  const response = await fetch(localUri);
+  if (!response.ok) throw new Error('Could not read the selected image.');
+  const fileBuffer = await response.arrayBuffer();
+
+  const { error: uploadError } = await client.storage
+    .from('creova-avatars')
+    .upload(objectPath, fileBuffer, {
+      contentType: mimeType,
+      cacheControl: '3600',
+      upsert: false,
+    });
+  if (uploadError) throw uploadError;
+
+  const { data: publicUrlData } = client.storage
+    .from('creova-avatars')
+    .getPublicUrl(objectPath);
+
+  const { data, error } = await client.from('profiles').update({
+    avatar_url: publicUrlData.publicUrl,
+    updated_at: new Date().toISOString(),
+  }).eq('id', userData.user.id).select('*').single();
+
+  if (error) {
+    await client.storage.from('creova-avatars').remove([objectPath]);
+    throw error;
+  }
+
+  return data as CreovaProfile;
+}
