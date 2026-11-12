@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, getHomeFeed, getProfilePosts, getPostById, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import {
@@ -319,7 +320,7 @@ function CreateScreen() {
   const [caption, setCaption] = useState('');
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
-  const [selectedImage, setSelectedImage] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [notice, setNotice] = useState('');
 
@@ -327,25 +328,31 @@ function CreateScreen() {
     setNotice('');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
         quality: 0.85,
       });
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        if (asset.type && asset.type !== 'image') {
-          setNotice('Choose an image file, not a video.');
+        const mediaType = asset.type === 'video' ? 'video' : 'image';
+        const mimeType = asset.mimeType ?? (mediaType === 'image' ? 'image/jpeg' : '');
+        const allowed = mediaType === 'image'
+          ? ['image/jpeg', 'image/png', 'image/webp']
+          : ['video/mp4', 'video/quicktime', 'video/webm'];
+        const maxBytes = mediaType === 'image' ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
+        if (!allowed.includes(mimeType)) {
+          setNotice(mediaType === 'image' ? 'Use a JPEG, PNG, or WebP image.' : 'Use an MP4, MOV, or WebM video.');
           return;
         }
-        if (asset.fileSize && asset.fileSize > 10 * 1024 * 1024) {
-          setNotice('Choose an image smaller than 10 MB.');
+        if (asset.fileSize && asset.fileSize > maxBytes) {
+          setNotice(mediaType === 'image' ? 'Choose an image smaller than 10 MB.' : 'Choose a video smaller than 50 MB.');
           return;
         }
-        if (asset.mimeType && !['image/jpeg', 'image/png', 'image/webp'].includes(asset.mimeType)) {
-          setNotice('Use a JPEG, PNG, or WebP image.');
+        if (mediaType === 'video' && asset.duration && asset.duration > 60_000) {
+          setNotice('Choose a video that is 60 seconds or shorter.');
           return;
         }
-        setSelectedImage(asset);
+        setSelectedMedia({ ...asset, mimeType });
       }
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not open your photo library.');
@@ -353,31 +360,35 @@ function CreateScreen() {
   }
 
   async function publish() {
-    if (!caption.trim() && !selectedImage) {
+    if (!caption.trim() && !selectedMedia) {
       setNotice('Write a caption or choose an image first.');
       return;
     }
     setPublishing(true);
     setNotice('');
     try {
-      if (selectedImage) {
-        await createPostWithImage({
+      if (selectedMedia) {
+        await createPostWithMedia({
           caption,
           postType,
           visibility,
-          image: {
-            uri: selectedImage.uri,
-            mimeType: selectedImage.mimeType ?? 'image/jpeg',
-            fileSize: selectedImage.fileSize ?? null,
-            width: selectedImage.width,
-            height: selectedImage.height,
+          media: {
+            uri: selectedMedia.uri,
+            mimeType: selectedMedia.mimeType ?? 'image/jpeg',
+            fileSize: selectedMedia.fileSize ?? null,
+            width: selectedMedia.width,
+            height: selectedMedia.height,
+            mediaType: selectedMedia.type === 'video' ? 'video' : 'image',
+            durationSeconds: selectedMedia.type === 'video' && selectedMedia.duration
+              ? selectedMedia.duration / 1000
+              : null,
           },
         });
       } else {
         await createPost({ caption, postType, visibility });
       }
       setCaption('');
-      setSelectedImage(null);
+      setSelectedMedia(null);
       setNotice('Published. Your post is now in your CREOVA feed.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
@@ -404,12 +415,14 @@ function CreateScreen() {
       />
       <Text style={styles.composerCount}>{caption.length}/2200</Text>
       <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
-        <Text style={styles.imagePickButtonText}>{selectedImage ? 'Change selected image' : '＋ Add a photo'}</Text>
+        <Text style={styles.imagePickButtonText}>{selectedMedia ? 'Change selected media' : '＋ Add photo or video'}</Text>
       </TouchableOpacity>
-      {selectedImage && <View style={styles.imagePreviewWrap}>
-        <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} resizeMode="cover" />
-        <TouchableOpacity onPress={() => setSelectedImage(null)} style={styles.removeImageButton}>
-          <Text style={styles.removeImageText}>Remove image</Text>
+      {selectedMedia && <View style={styles.imagePreviewWrap}>
+        {selectedMedia.type === 'video'
+          ? <View style={[styles.imagePreview, styles.videoPreview]}><Text style={styles.videoPreviewIcon}>▶</Text><Text style={styles.videoPreviewText}>VIDEO · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View>
+          : <Image source={{ uri: selectedMedia.uri }} style={styles.imagePreview} resizeMode="cover" />}
+        <TouchableOpacity onPress={() => setSelectedMedia(null)} style={styles.removeImageButton}>
+          <Text style={styles.removeImageText}>Remove media</Text>
         </TouchableOpacity>
       </View>}
       <Text style={styles.editLabel}>POST FORMAT</Text>
@@ -428,7 +441,7 @@ function CreateScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedImage)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedImage)) && styles.publishButtonDisabled]}>
+      <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedMedia)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedMedia)) && styles.publishButtonDisabled]}>
         <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
       </TouchableOpacity>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
