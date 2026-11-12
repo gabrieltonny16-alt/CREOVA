@@ -1640,8 +1640,17 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
   async function openPersonProfile(personId: string) {
     setFollowListType(null); setSelectedPerson(null); setPersonError(''); setPersonLoading(true);
     try {
-      const [person, stats, states, creatorPosts] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId]), getCreatorPosts(personId)]);
-      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(states[personId] ?? 'none'); setSelectedPersonPosts(creatorPosts);
+      const [person, states] = await Promise.all([getPublicProfile(personId), getFollowStates([personId])]);
+      const followState = states[personId] ?? 'none';
+      const canViewPosts = !person.is_private || followState === 'following';
+      const [stats, creatorPosts] = await Promise.all([
+        getPublicProfileCounts(personId),
+        canViewPosts ? getCreatorPosts(personId) : Promise.resolve([] as CreovaFeedPost[]),
+      ]);
+      setSelectedPerson(person);
+      setSelectedPersonCounts({ ...stats, posts: canViewPosts ? stats.posts : 0 });
+      setSelectedPersonFollowState(followState);
+      setSelectedPersonPosts(creatorPosts);
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not open this profile.'); }
     finally { setPersonLoading(false); }
   }
@@ -1654,6 +1663,10 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
         await unfollowProfile(selectedPerson.id);
         setSelectedPersonCounts(v => ({ ...v, followers: Math.max(0, v.followers - (selectedPersonFollowState === 'following' ? 1 : 0)) }));
         setSelectedPersonFollowState('none');
+        if (selectedPerson.is_private) {
+          setSelectedPersonPosts([]);
+          setSelectedPersonCounts(v => ({ ...v, posts: 0 }));
+        }
       } else {
         const next = await followProfile(selectedPerson.id);
         setSelectedPersonFollowState(next);
@@ -1950,7 +1963,11 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
                 <Text style={styles.mutedSmall}>{selectedPersonPosts.length} SHOWN</Text>
               </View>
               {selectedPerson.is_private && selectedPersonFollowState !== 'following'
-                ? <Text style={styles.mutedSmall}>Follow and be accepted to view this creator’s posts.</Text>
+                ? <View style={{ borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.accentSoft, borderRadius: 14, padding: 18, alignItems: 'center', gap: 8 }}>
+                    <Text style={{ color: COLORS.text, fontSize: 26 }}>▣</Text>
+                    <Text style={{ color: COLORS.text, fontWeight: '800', fontSize: 14 }}>This account is private</Text>
+                    <Text style={[styles.mutedSmall, { textAlign: 'center' }]}>{selectedPersonFollowState === 'requested' ? 'Your follow request has been sent. Posts and videos will appear here if the creator accepts.' : 'Follow this creator to request access to their posts and videos.'}</Text>
+                  </View>
                 : selectedPersonPosts.length === 0
                   ? <EmptyState title="No posts yet" description="This creator’s posts and videos will appear here." />
                   : <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
