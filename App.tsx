@@ -135,7 +135,7 @@ function StoryVideo({ uri, paused, onFinish }: { uri: string; paused: boolean; o
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
-function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator, onOpenExplore }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void; onOpenExplore: () => void }) {
+function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator, onOpenExplore, onOpenNotifications }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void; onOpenExplore: () => void; onOpenNotifications: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
   const [refreshing, setRefreshing] = useState(false);
@@ -352,9 +352,14 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
     <View style={styles.screenContent}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, paddingVertical: 3 }}>
         <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', letterSpacing: 2.2 }}>CREOVA</Text>
-        <TouchableOpacity onPress={onOpenExplore} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Search and explore CREOVA">
-          <Text style={styles.topBarActionText}>⌕</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <TouchableOpacity onPress={onOpenNotifications} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Open notifications">
+            <Text style={styles.topBarActionText}>♧</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onOpenExplore} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Search and explore CREOVA">
+            <Text style={styles.topBarActionText}>⌕</Text>
+          </TouchableOpacity>
+        </View>
       </View>
       <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5, gap: 8 }]}>
         {(['following', 'for-you'] as const).map(mode => {
@@ -925,9 +930,9 @@ function MessageAudio({ uri }: { uri: string }) {
   );
 }
 
-function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { onOpenPost: (postId: string) => void; messageTargetId: string | null; onMessageTargetHandled: () => void }) {
+function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled, initialSection = 'Messages' }: { onOpenPost: (postId: string) => void; messageTargetId: string | null; onMessageTargetHandled: () => void; initialSection?: 'Messages' | 'Notifications' }) {
   const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const [section, setSection] = useState<'Messages' | 'Notifications'>('Messages');
+  const [section, setSection] = useState<'Messages' | 'Notifications'>(initialSection);
   const [messageSection, setMessageSection] = useState<'Chats' | 'Requests'>('Chats');
   const [notificationSection, setNotificationSection] = useState<'Activity' | 'Follow requests'>('Activity');
   const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
@@ -2738,9 +2743,9 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onBack={() => setActiveTab('Home')} />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
+      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} initialSection="Notifications" />;
       case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenExplore={() => setActiveTab('Discover')} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenExplore={() => setActiveTab('Discover')} onOpenNotifications={() => setActiveTab('Inbox')} />;
     }
   };
 
