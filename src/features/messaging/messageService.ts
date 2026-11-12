@@ -168,7 +168,8 @@ async function getMessageReactionSummaries(
     .from('conversation_message_reactions')
     .select('message_id, user_id, emoji')
     .eq('conversation_id', conversationId)
-    .in('message_id', messageIds);
+    .in('message_id', messageIds)
+    .is('deleted_at', null);
   if (error) throw error;
   const grouped = new Map<string, Map<MessageReactionEmoji, { count: number; reactedByMe: boolean }>>();
   for (const row of data ?? []) {
@@ -201,13 +202,15 @@ export async function setMessageReaction(
   if (emoji !== null && !MESSAGE_REACTION_EMOJIS.includes(emoji)) {
     throw new Error('Choose a supported reaction.');
   }
+  const now = new Date().toISOString();
   if (emoji === null) {
     const { error } = await client
       .from('conversation_message_reactions')
-      .delete()
+      .update({ deleted_at: now, updated_at: now })
       .eq('conversation_id', conversationId)
       .eq('message_id', messageId)
-      .eq('user_id', auth.user.id);
+      .eq('user_id', auth.user.id)
+      .is('deleted_at', null);
     if (error) throw error;
     return;
   }
@@ -218,7 +221,8 @@ export async function setMessageReaction(
       message_id: messageId,
       user_id: auth.user.id,
       emoji,
-      updated_at: new Date().toISOString(),
+      deleted_at: null,
+      updated_at: now,
     }, { onConflict: 'message_id,user_id' });
   if (error) throw error;
 }
