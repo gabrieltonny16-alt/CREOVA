@@ -43,6 +43,7 @@ export type CreovaMessage = {
   attachment_size: number | null;
   attachment_duration_ms: number | null;
   attachmentUrl?: string | null;
+  reactions?: MessageReactionSummary[];
   sender: {
     username: string;
     display_name: string;
