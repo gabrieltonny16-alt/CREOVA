@@ -77,15 +77,44 @@ function FeedVideo({ uri }: { uri: string }) {
 }
 
 function ShortVideoPlayer({ uri, active, height }: { uri: string; active: boolean; height: number }) {
+  const [paused, setPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
   const player = useVideoPlayer(uri, instance => {
     instance.loop = true;
+    instance.muted = true;
     if (active) instance.play();
   });
   useEffect(() => {
-    if (active) player.play();
+    if (active) {
+      if (!paused) player.play();
+    } else {
+      player.pause();
+    }
+  }, [active, paused, player]);
+  function togglePlayback() {
+    if (!active) return;
+    if (paused) player.play();
     else player.pause();
-  }, [active, player]);
-  return <VideoView player={player} style={{ width: '100%', height, backgroundColor: '#000000' }} contentFit="cover" nativeControls={false} />;
+    setPaused(value => !value);
+  }
+  function toggleMute() {
+    const nextMuted = !muted;
+    player.muted = nextMuted;
+    setMuted(nextMuted);
+  }
+  return (
+    <View style={{ width: '100%', height, backgroundColor: '#000000' }}>
+      <VideoView player={player} style={{ width: '100%', height }} contentFit="cover" nativeControls={false} />
+      <View pointerEvents="box-none" style={{ position: 'absolute', top: 12, right: 12, bottom: 12, left: 12, justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <TouchableOpacity onPress={toggleMute} accessibilityRole="button" accessibilityLabel={muted ? 'Unmute video' : 'Mute video'} style={{ backgroundColor: '#00000088', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 8 }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '800' }}>{muted ? 'SOUND OFF' : 'SOUND ON'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={togglePlayback} accessibilityRole="button" accessibilityLabel={paused ? 'Play video' : 'Pause video'} style={{ alignSelf: 'center', marginTop: -24, width: 58, height: 58, borderRadius: 29, backgroundColor: '#00000077', borderWidth: 1, borderColor: '#FFFFFF88', alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 24, fontWeight: '800' }}>{paused ? '▶' : 'Ⅱ'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 }
 
 function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
@@ -103,6 +132,8 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
 function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
+  const [refreshing, setRefreshing] = useState(false);
+  const feedRequestId = useRef(0);
   const [activeShortIndex, setActiveShortIndex] = useState(0);
   const { height: windowHeight } = useWindowDimensions();
   const shortFeedHeight = Math.max(420, windowHeight - 138);
@@ -179,18 +210,28 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
     }
   }
 
-  async function loadFeed() {
-    setLoading(true);
+  async function loadFeed(isRefresh = false) {
+    const requestId = ++feedRequestId.current;
+    if (posts.length === 0 && !isRefresh) setLoading(true);
+    if (isRefresh) setRefreshing(true);
     setMessage('');
     try {
       const feed = await (feedMode === 'following' ? getHomeFeed() : getForYouFeed());
-      setPosts(feed);
       const creatorIds = [...new Set(feed.map(post => post.author_id))];
-      setCreatorFollowStates(await getFollowStates(creatorIds));
+      const followStates = await getFollowStates(creatorIds);
+      if (requestId !== feedRequestId.current) return;
+      setPosts(feed);
+      setCreatorFollowStates(followStates);
+      setActiveShortIndex(0);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not load your feed.');
+      if (requestId === feedRequestId.current) {
+        setMessage(error instanceof Error ? error.message : 'Could not load your feed.');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === feedRequestId.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }
 
@@ -198,6 +239,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
     onForYouModeChange(feedMode === 'for-you');
     setActiveShortIndex(0);
     void loadFeed();
+    return () => { feedRequestId.current += 1; };
   }, [feedMode]);
 
   useEffect(() => () => onForYouModeChange(false), []);
@@ -330,7 +372,13 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
       />}
       {feedMode === 'for-you' ? (
         <View style={{ marginHorizontal: -12, backgroundColor: '#000000' }}>
-          {!loading && shortPosts.length === 0 && <EmptyState title="Your For You feed is ready" description="Public creator videos will appear here as they are published. Try following creators or sharing your first video." />}
+          {!loading && shortPosts.length === 0 && (
+            <View style={{ padding: 18, gap: 12 }}>
+              <EmptyState title="Your For You feed is ready" description="Public creator videos will appear here as they are published. Try following creators or sharing your first video." />
+              {!!message && <TouchableOpacity onPress={() => void loadFeed(true)} style={styles.refreshButton}><Text style={styles.refreshText}>Try again</Text></TouchableOpacity>}
+              <TouchableOpacity onPress={() => void loadFeed(true)} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: '#A7C6FF', fontSize: 12, fontWeight: '800' }}>Refresh videos</Text></TouchableOpacity>
+            </View>
+          )}
           {!loading && shortPosts.length > 0 && (
             <ScrollView
               style={{ height: shortFeedHeight }}
@@ -340,6 +388,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
               decelerationRate="fast"
               showsVerticalScrollIndicator={false}
               nestedScrollEnabled
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void loadFeed(true)} tintColor="#FFFFFF" colors={[COLORS.blue]} />}
               onMomentumScrollEnd={event => setActiveShortIndex(Math.max(0, Math.round(event.nativeEvent.contentOffset.y / shortFeedHeight)))}
             >
               {shortPosts.map((post, index) => {
@@ -351,7 +400,12 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
                     <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 18 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
                         <View style={{ flex: 1, gap: 8, paddingBottom: 5 }}>
-                          <TouchableOpacity onPress={() => onOpenCreator(post.author_id)} accessibilityRole="button" accessibilityLabel={`Open @${post.author?.username || 'creator'} profile`} style={{ alignSelf: 'flex-start' }}>
+                          <TouchableOpacity onPress={() => onOpenCreator(post.author_id)} accessibilityRole="button" accessibilityLabel={`Open @${post.author?.username || 'creator'} profile`} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                            <View style={{ width: 38, height: 38, borderRadius: 19, overflow: 'hidden', borderWidth: 1.5, borderColor: '#FFFFFF', backgroundColor: '#263650', alignItems: 'center', justifyContent: 'center' }}>
+                              {post.author?.avatar_url
+                                ? <Image source={{ uri: post.author.avatar_url }} style={{ width: 38, height: 38 }} resizeMode="cover" />
+                                : <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '800' }}>{(post.author?.display_name || post.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+                            </View>
                             <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>@{post.author?.username || 'creator'} ›</Text>
                           </TouchableOpacity>
                           {!!post.caption && <Text numberOfLines={3} style={{ color: '#FFFFFF', fontSize: 13, lineHeight: 19 }}>{post.caption}</Text>}
