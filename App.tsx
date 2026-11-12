@@ -12,7 +12,7 @@ import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentRea
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
 import {
-  getMyConversations, getConversationMessages, createConversation, sendMessage,
+  getMyConversations, getConversationMessages, searchConversationMessages, getConversationMessagesAround, createConversation, sendMessage,
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
 } from './src/features/messaging/messageService';
@@ -117,11 +117,15 @@ function ShortVideoPlayer({ uri, active, height }: { uri: string; active: boolea
   );
 }
 
-function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
+function StoryVideo({ uri, paused, onFinish }: { uri: string; paused: boolean; onFinish: () => void }) {
   const player = useVideoPlayer(uri, instance => {
     instance.loop = false;
     instance.play();
   });
+  useEffect(() => {
+    if (paused) player.pause();
+    else player.play();
+  }, [player, paused]);
   useEffect(() => {
     const subscription = player.addListener('playToEnd', onFinish);
     return () => subscription.remove();
@@ -935,6 +939,11 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [activeConversation, setActiveConversation] = useState<CreovaConversation | null>(null);
   const [threadMessages, setThreadMessages] = useState<CreovaMessage[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [messageSearchResults, setMessageSearchResults] = useState<CreovaMessage[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchHasRun, setMessageSearchHasRun] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [draft, setDraft] = useState('');
   const [draftClientId, setDraftClientId] = useState<string | null>(null);
@@ -953,6 +962,9 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       const [userId, items] = await Promise.all([getCurrentMessagingUserId(), getMyConversations()]);
       setCurrentUserId(userId);
       setConversations(items);
+      setActiveConversation(current => current
+        ? items.find(item => item.id === current.id) ?? current
+        : null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load your messages.');
     } finally {
@@ -994,6 +1006,10 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
 
   async function openConversation(item: CreovaConversation) {
     setActiveConversation(item);
+    setMessageSearchOpen(false);
+    setMessageSearchQuery('');
+    setMessageSearchResults([]);
+    setMessageSearchHasRun(false);
     setThreadMessages([]);
     setDraft('');
     setDraftClientId(null);
@@ -1113,6 +1129,40 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     setSelectedPeople(items => items.some(item => item.id === person.id)
       ? items.filter(item => item.id !== person.id)
       : [...items, person]);
+  }
+
+
+  async function runMessageSearch() {
+    if (!activeConversation || messageSearchQuery.trim().length < 2 || messageSearchLoading) return;
+    setMessageSearchLoading(true);
+    setMessageSearchHasRun(false);
+    setMessageSearchResults([]);
+    try {
+      const results = await searchConversationMessages(activeConversation.id, messageSearchQuery);
+      setMessageSearchResults(results);
+      setMessageSearchHasRun(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not search this conversation.');
+    } finally {
+      setMessageSearchLoading(false);
+    }
+  }
+
+  async function openSearchedMessage(item: CreovaMessage) {
+    if (!activeConversation) return;
+    setThreadLoading(true);
+    try {
+      const context = await getConversationMessagesAround(activeConversation.id, item.id);
+      setThreadMessages(context);
+      setMessageSearchOpen(false);
+      setMessageSearchQuery('');
+      setMessageSearchResults([]);
+      setMessageSearchHasRun(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open this message.');
+    } finally {
+      setThreadLoading(false);
+    }
   }
 
   async function chooseChatAttachment() {
@@ -1492,7 +1542,59 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <Text style={styles.resultName}>{activeConversation ? conversationTitle(activeConversation) : 'Conversation'}</Text>
             <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}</Text>
           </View>
+          <TouchableOpacity
+            onPress={() => {
+              setMessageSearchOpen(value => !value);
+              setMessageSearchQuery('');
+              setMessageSearchResults([]);
+              setMessageSearchHasRun(false);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={messageSearchOpen ? 'Close message search' : 'Search messages in this conversation'}
+            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#A7C6FF', fontSize: 23 }}>⌕</Text>
+          </TouchableOpacity>
         </View>
+        {messageSearchOpen && <View style={{ paddingHorizontal: 13, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            <TextInput
+              value={messageSearchQuery}
+              onChangeText={value => { setMessageSearchQuery(value); setMessageSearchResults([]); setMessageSearchHasRun(false); }}
+              editable={!messageSearchLoading}
+              onSubmitEditing={() => void runMessageSearch()}
+              returnKeyType="search"
+              autoCapitalize="sentences"
+              placeholder="Search words or phrases…"
+              placeholderTextColor="#71819C"
+              style={[styles.searchInput, { minHeight: 42, paddingVertical: 8 }]}
+            />
+            <TouchableOpacity
+              disabled={messageSearchQuery.trim().length < 2 || messageSearchLoading}
+              onPress={() => void runMessageSearch()}
+              style={[styles.searchButton, { minHeight: 42, opacity: messageSearchQuery.trim().length < 2 || messageSearchLoading ? 0.5 : 1 }]}
+            >
+              <Text style={styles.searchButtonText}>{messageSearchLoading ? '…' : 'Search'}</Text>
+            </TouchableOpacity>
+          </View>
+          {messageSearchQuery.trim().length < 2 && <Text style={styles.mutedSmall}>Enter at least 2 characters to search this conversation.</Text>}
+          {messageSearchLoading && <Text style={styles.notice}>Searching messages…</Text>}
+          {messageSearchHasRun && !messageSearchLoading && messageSearchResults.length === 0 && <Text style={styles.notice}>No messages matched that search.</Text>}
+          {messageSearchResults.length > 0 && <ScrollView style={{ maxHeight: 190 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 6 }}>
+            {messageSearchResults.map(result => (
+              <TouchableOpacity
+                key={result.id}
+                onPress={() => void openSearchedMessage(result)}
+                style={{ padding: 10, borderRadius: 11, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, gap: 4 }}
+              >
+                <Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>
+                  {result.sender?.display_name || result.sender?.username || 'CREOVA member'} · {new Date(result.created_at).toLocaleString()}
+                </Text>
+                <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 12 }}>{result.body}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>}
+        </View>}
         {activeConversation?.membershipStatus === 'pending' && <View style={{ backgroundColor: COLORS.surface, padding: 14, gap: 8 }}>
           <Text style={styles.resultName}>Message request</Text>
           <Text style={styles.notice}>Accept this request to continue the conversation, or decline it to remove it from your requests.</Text>
@@ -1513,7 +1615,20 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
               {!!item.attachmentUrl && item.attachment_type === 'video' && <MessageVideo uri={item.attachmentUrl} />}
               {!!item.attachmentUrl && item.attachment_type === 'audio' && <MessageAudio uri={item.attachmentUrl} />}
               {!!item.attachment_path && !item.attachmentUrl && <Text style={{ color: COLORS.muted, fontSize: 11 }}>Attachment unavailable. Refresh to try again.</Text>}
-              <Text style={{ color: '#A8B6CC', fontSize: 9, textAlign: 'right' }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7 }}>
+                <Text style={{ color: '#A8B6CC', fontSize: 9 }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                {mine && (() => {
+                  const readers = (activeConversation?.participants ?? []).filter(person =>
+                    person.user_id !== currentUserId &&
+                    person.membership_status === 'accepted' &&
+                    person.last_read_at &&
+                    new Date(person.last_read_at).getTime() >= new Date(item.created_at).getTime()
+                  );
+                  if (!readers.length) return null;
+                  const label = activeConversation?.kind === 'group' ? `Seen by ${readers.length}` : 'Seen';
+                  return <Text style={{ color: '#83B8FF', fontSize: 9, fontWeight: '800' }}>{label}</Text>;
+                })()}
+              </View>
             </View>;
           })}
         </ScrollView>
@@ -1552,6 +1667,8 @@ function StoriesSection() {
   const [storyCaptionDraft, setStoryCaptionDraft] = useState('');
   const [activeStoryOwnerId, setActiveStoryOwnerId] = useState<string | null>(null);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
+  const [storyPaused, setStoryPaused] = useState(false);
+  const [storyProgress, setStoryProgress] = useState(0);
   const [storyReplyDraft, setStoryReplyDraft] = useState('');
   const [storyViewers, setStoryViewers] = useState<Awaited<ReturnType<typeof getMyStoryViewers>>>([]);
   const [viewersOpen, setViewersOpen] = useState(false);
@@ -1633,6 +1750,8 @@ function StoriesSection() {
     if (!group.length) return;
     setActiveStoryOwnerId(ownerId);
     setActiveStoryIndex(0);
+    setStoryPaused(false);
+    setStoryProgress(0);
     setStoryReplyDraft('');
     setViewersOpen(false);
     setStoryViewers([]);
@@ -1650,6 +1769,8 @@ function StoriesSection() {
     if (activeStoryIndex + 1 < activeStoryGroup.length) {
       const nextIndex = activeStoryIndex + 1;
       setActiveStoryIndex(nextIndex);
+      setStoryPaused(false);
+      setStoryProgress(0);
       const next = activeStoryGroup[nextIndex];
       if (next.user_id !== currentUserId) {
         try {
@@ -1660,6 +1781,22 @@ function StoriesSection() {
     } else {
       setActiveStoryOwnerId(null);
       setViewersOpen(false);
+    }
+  }
+
+  async function goBackStory() {
+    if (activeStoryIndex > 0) {
+      const previousIndex = activeStoryIndex - 1;
+      setActiveStoryIndex(previousIndex);
+      setStoryPaused(false);
+      setStoryProgress(0);
+      const previous = activeStoryGroup[previousIndex];
+      if (previous.user_id !== currentUserId) {
+        try {
+          await markStoryViewed(previous.id);
+          setStories(items => items.map(item => item.id === previous.id ? { ...item, viewedByMe: true } : item));
+        } catch { /* Keep navigation responsive if view tracking fails. */ }
+      }
     }
   }
 
@@ -1729,10 +1866,19 @@ function StoriesSection() {
   }, []);
 
   useEffect(() => {
-    if (!activeStory || activeStory.media_type === 'video') return;
-    const timer = setTimeout(() => { void advanceStory(); }, 6000);
-    return () => clearTimeout(timer);
-  }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId]);
+    if (!activeStory || activeStory.media_type === 'video' || storyPaused) return;
+    const timer = setInterval(() => {
+      setStoryProgress(progress => {
+        const next = Math.min(6000, progress + 100);
+        if (next >= 6000) {
+          clearInterval(timer);
+          void advanceStory();
+        }
+        return next;
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId, storyPaused]);
 
 
   return (
@@ -1772,7 +1918,9 @@ function StoriesSection() {
         <View style={{ flex: 1, backgroundColor: '#05070D', paddingTop: Platform.OS === 'android' ? 28 : 48, paddingHorizontal: 12, paddingBottom: 22 }}>
           {activeStory && <>
             <View style={{ flexDirection: 'row', gap: 4, marginBottom: 14 }}>
-              {activeStoryGroup.map((item, index) => <View key={item.id} style={{ flex: 1, height: 3, borderRadius: 3, backgroundColor: index <= activeStoryIndex ? '#FFFFFF' : '#526078' }} />)}
+              {activeStoryGroup.map((item, index) => <View key={item.id} style={{ flex: 1, height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: '#526078' }}>
+                <View style={{ height: '100%', width: index < activeStoryIndex ? '100%' : index === activeStoryIndex ? `${Math.round(storyProgress / 6000 * 100)}%` : '0%', backgroundColor: '#FFFFFF' }} />
+              </View>)}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 14 }}>
               <View style={styles.resultAvatar}>
@@ -1784,12 +1932,22 @@ function StoriesSection() {
                 <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{activeStory.author?.display_name || activeStory.author?.username || 'CREOVA member'}</Text>
                 <Text style={{ color: '#A9B4C8', fontSize: 10 }}>{new Date(activeStory.created_at).toLocaleString()}</Text>
               </View>
-              <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)}><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setStoryPaused(value => !value)} accessibilityRole="button" accessibilityLabel={storyPaused ? 'Resume story' : 'Pause story'} style={{ paddingHorizontal: 8, paddingVertical: 5 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '800' }}>{storyPaused ? '▶' : 'Ⅱ'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)} accessibilityRole="button" accessibilityLabel="Close story"><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
             </View>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              {activeStory.media_type === 'video'
-                ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} onFinish={() => { void advanceStory(); }} />
-                : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
+              <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                {activeStory.media_type === 'video'
+                  ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} paused={storyPaused} onFinish={() => { void advanceStory(); }} />
+                  : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
+                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, flexDirection: 'row' }}>
+                  <TouchableOpacity onPress={() => void goBackStory()} accessibilityRole="button" accessibilityLabel="Previous story" style={{ flex: 1 }} />
+                  <TouchableOpacity onPress={() => void advanceStory()} accessibilityRole="button" accessibilityLabel="Next story" style={{ flex: 1 }} />
+                </View>
+                {storyPaused && <View pointerEvents="none" style={{ position: 'absolute', alignSelf: 'center', backgroundColor: '#00000088', borderRadius: 28, padding: 16 }}><Text style={{ color: '#FFFFFF', fontSize: 25 }}>Ⅱ</Text></View>}
+              </View>
               {!!activeStory.caption && <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', padding: 12 }}>{activeStory.caption}</Text>}
             </View>
             {activeStory.user_id === currentUserId && <TouchableOpacity onPress={() => void loadStoryViewers()} style={{ alignSelf: 'flex-start', paddingVertical: 9 }}>
@@ -1812,7 +1970,7 @@ function StoriesSection() {
                     <TouchableOpacity disabled={storyBusy || !storyReplyDraft.trim()} onPress={() => void sendStoryReply()} style={{ padding: 10 }}><Text style={{ color: '#8DBBFF', fontWeight: '800' }}>{storyBusy ? '…' : 'Send'}</Text></TouchableOpacity>
                   </View>
                 </View>}
-            <TouchableOpacity onPress={() => void advanceStory()} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: '#A9B4C8', fontSize: 10 }}>Tap to continue</Text></TouchableOpacity>
+            <Text style={{ color: '#64748B', fontSize: 9, textAlign: 'center', paddingTop: 6 }}>Tap right to continue · Tap left to go back</Text>
           </>}
         </View>
       </Modal>
