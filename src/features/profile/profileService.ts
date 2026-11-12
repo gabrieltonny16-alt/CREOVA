@@ -55,6 +55,22 @@ export async function followProfile(targetUserId: string): Promise<'requested' |
   const { data: target, error: targetError } = await client.from('profiles').select('is_private').eq('id', targetUserId).single();
   if (targetError) throw targetError;
   const status = target.is_private ? 'pending' : 'accepted';
+  const { data: existing, error: existingError } = await client.from('user_follows')
+    .select('status')
+    .eq('follower_id', userData.user.id)
+    .eq('following_id', targetUserId)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing?.status === 'rejected') {
+    const { error: deleteError } = await client.from('user_follows').delete()
+      .eq('follower_id', userData.user.id)
+      .eq('following_id', targetUserId);
+    if (deleteError) throw deleteError;
+  } else if (existing) {
+    return existing.status === 'pending' ? 'requested' : 'following';
+  }
+
   const { error } = await client.from('user_follows').insert({
     follower_id: userData.user.id,
     following_id: targetUserId,
