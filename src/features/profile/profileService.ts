@@ -20,6 +20,24 @@ export async function getMyProfile(): Promise<CreovaProfile> {
   return data as CreovaProfile;
 }
 
+export async function getPublicProfile(profileId: string): Promise<CreovaProfile> {
+  const { data, error } = await requireSupabase().from('profiles').select('*').eq('id', profileId).single();
+  if (error) throw error;
+  return data as CreovaProfile;
+}
+
+export async function getPublicProfileCounts(profileId: string): Promise<CreovaProfileCounts> {
+  const client = requireSupabase();
+  const [posts, followers, following] = await Promise.all([
+    client.from('posts').select('id', { count: 'exact', head: true }).eq('author_id', profileId),
+    client.from('user_follows').select('follower_id', { count: 'exact', head: true }).eq('following_id', profileId).eq('status', 'accepted'),
+    client.from('user_follows').select('following_id', { count: 'exact', head: true }).eq('follower_id', profileId).eq('status', 'accepted'),
+  ]);
+  const failed = [posts, followers, following].find(result => result.error);
+  if (failed?.error) throw failed.error;
+  return { posts: posts.count ?? 0, followers: followers.count ?? 0, following: following.count ?? 0 };
+}
+
 export async function updateMyProfile(input: Pick<CreovaProfile, 'display_name' | 'bio' | 'is_private'>): Promise<CreovaProfile> {
   const client = requireSupabase();
   const { data: userData, error: userError } = await client.auth.getUser();
