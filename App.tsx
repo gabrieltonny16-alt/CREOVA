@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, getMyFollowList, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, getMyFollowList, getPublicProfile, getPublicProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile, FollowListEntry } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
@@ -1578,6 +1578,12 @@ function ProfileScreen() {
   const [followList, setFollowList] = useState<FollowListEntry[]>([]);
   const [followListLoading, setFollowListLoading] = useState(false);
   const [followListError, setFollowListError] = useState('');
+  const [selectedPerson, setSelectedPerson] = useState<CreovaProfile | null>(null);
+  const [selectedPersonCounts, setSelectedPersonCounts] = useState({ posts: 0, followers: 0, following: 0 });
+  const [selectedPersonFollowState, setSelectedPersonFollowState] = useState<'none' | 'requested' | 'following'>('none');
+  const [personLoading, setPersonLoading] = useState(false);
+  const [personError, setPersonError] = useState('');
+  const [personActionBusy, setPersonActionBusy] = useState(false);
 
   async function loadProfile() {
     setError('');
@@ -1606,6 +1612,32 @@ function ProfileScreen() {
     try { setFollowList(await getMyFollowList(kind)); }
     catch (e) { setFollowListError(e instanceof Error ? e.message : 'Could not load this list.'); }
     finally { setFollowListLoading(false); }
+  }
+
+  async function openPersonProfile(personId: string) {
+    setFollowListType(null); setSelectedPerson(null); setPersonError(''); setPersonLoading(true);
+    try {
+      const [person, stats, states] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId])]);
+      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(states[personId] ?? 'none');
+    } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not open this profile.'); }
+    finally { setPersonLoading(false); }
+  }
+
+  async function toggleSelectedPersonFollow() {
+    if (!selectedPerson || personActionBusy) return;
+    setPersonActionBusy(true); setPersonError('');
+    try {
+      if (selectedPersonFollowState === 'following' || selectedPersonFollowState === 'requested') {
+        await unfollowProfile(selectedPerson.id);
+        setSelectedPersonCounts(v => ({ ...v, followers: Math.max(0, v.followers - (selectedPersonFollowState === 'following' ? 1 : 0)) }));
+        setSelectedPersonFollowState('none');
+      } else {
+        const next = await followProfile(selectedPerson.id);
+        setSelectedPersonFollowState(next);
+        if (next === 'following') setSelectedPersonCounts(v => ({ ...v, followers: v.followers + 1 }));
+      }
+    } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not update follow status.'); }
+    finally { setPersonActionBusy(false); }
   }
 
   async function loadSavedPosts() {
@@ -1847,7 +1879,7 @@ function ProfileScreen() {
             description={followListType === 'followers' ? 'When people follow you, they will appear here.' : 'Accounts you follow will appear here.'}
           />}
           <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 9, paddingBottom: 10 }}>
-            {followList.map(person => <View key={person.id} style={styles.resultRow}>
+            {followList.map(person => <TouchableOpacity key={person.id} style={styles.resultRow} onPress={() => void openPersonProfile(person.id)} accessibilityRole="button" accessibilityLabel={`Open @${person.username}'s profile`}>
               <View style={styles.resultAvatar}>
                 {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{(person.display_name || person.username || 'C').slice(0, 1).toUpperCase()}</Text>}
               </View>
@@ -1855,8 +1887,39 @@ function ProfileScreen() {
                 <Text style={styles.resultName}>{person.display_name || person.username}</Text>
                 <Text style={styles.resultHandle}>@{person.username}</Text>
               </View>
-            </View>)}
+              <Text style={styles.profileMenuChevron}>›</Text>
+            </TouchableOpacity>)}
           </ScrollView>
+        </View>
+      </View>
+    </Modal>
+    <Modal visible={personLoading || !!selectedPerson || !!personError} transparent animationType="slide" onRequestClose={() => { setSelectedPerson(null); setPersonError(''); }}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.68)' }}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => { setSelectedPerson(null); setPersonError(''); }} />
+        <View style={{ maxHeight: '82%', minHeight: '42%', backgroundColor: COLORS.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 20, gap: 16 }}>
+          <View style={styles.profileMenuHeader}>
+            <Text style={styles.profileMenuTitle}>CREATOR PROFILE</Text>
+            <TouchableOpacity onPress={() => { setSelectedPerson(null); setPersonError(''); }}><Text style={styles.profileMenuClose}>×</Text></TouchableOpacity>
+          </View>
+          {personLoading && <EmptyState title="Opening profile" description="Loading creator details from CREOVA." />}
+          {!!personError && <Text style={styles.notice}>{personError}</Text>}
+          {selectedPerson && <>
+            <View style={{ alignItems: 'center', gap: 7 }}>
+              {selectedPerson.avatar_url ? <Image source={{ uri: selectedPerson.avatar_url }} style={{ width: 86, height: 86, borderRadius: 43, backgroundColor: COLORS.surfaceRaised }} /> : <View style={[styles.avatar, { width: 86, height: 86, borderRadius: 43 }]}><Text style={styles.avatarText}>{(selectedPerson.display_name || selectedPerson.username).slice(0,1).toUpperCase()}</Text></View>}
+              <Text style={styles.profileName}>{selectedPerson.display_name}</Text>
+              <Text style={styles.profileHandle}>@{selectedPerson.username}{selectedPerson.is_private ? ' · Private account' : ''}</Text>
+              {!!selectedPerson.bio && <Text style={{ color: COLORS.muted, fontSize: 13, lineHeight: 19, textAlign: 'center' }}>{selectedPerson.bio}</Text>}
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-evenly', paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border }}>
+              <View style={{ alignItems: 'center', gap: 3 }}><Text style={styles.analyticsValue}>{selectedPersonCounts.posts}</Text><Text style={styles.analyticsLabel}>Posts</Text></View>
+              <View style={{ alignItems: 'center', gap: 3 }}><Text style={styles.analyticsValue}>{selectedPersonCounts.followers}</Text><Text style={styles.analyticsLabel}>Followers</Text></View>
+              <View style={{ alignItems: 'center', gap: 3 }}><Text style={styles.analyticsValue}>{selectedPersonCounts.following}</Text><Text style={styles.analyticsLabel}>Following</Text></View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 9 }}>
+              <TouchableOpacity disabled={personActionBusy} onPress={() => void toggleSelectedPersonFollow()} style={[styles.followButton, { flex: 1, minHeight: 44, opacity: personActionBusy ? 0.55 : 1 }]}><Text style={styles.followButtonText}>{personActionBusy ? 'Please wait…' : selectedPersonFollowState === 'following' ? 'Following' : selectedPersonFollowState === 'requested' ? 'Requested' : 'Follow'}</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => Share.share({ message: `Check out @${selectedPerson.username} on CREOVA.` }).catch(() => setPersonError('Could not open sharing options.'))} style={[styles.refreshButton, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}><Text style={styles.refreshText}>Share profile</Text></TouchableOpacity>
+            </View>
+          </>}
         </View>
       </View>
     </Modal>
