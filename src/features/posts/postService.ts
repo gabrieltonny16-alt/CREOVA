@@ -387,19 +387,42 @@ export async function getForYouFeed(): Promise<CreovaFeedPost[]> {
   const savedIds = new Set((savedResult.data ?? []).map(row => row.post_id));
   const now = Date.now();
 
-  // Rank with signals the app actually has today: creator affinity, follows,
-  // engagement, and recency. We do not pretend to use watch-time or view data.
-  return hydrated.map(post => ({ ...post, savedByMe: savedIds.has(post.id) }))
-    .map(post => {
-      const ageHours = Math.max(0, (now - new Date(post.created_at).getTime()) / 3_600_000);
+  // Start with real signals only: creator affinity, follows, engagement, and recency.
+  // We do not pretend to use watch-time or view data that CREOVA does not collect.
+  const ranked = hydrated.map(post => ({ post: { ...post, savedByMe: savedIds.has(post.id) }, score: 0 }))
+    .map(item => {
+      const ageHours = Math.max(0, (now - new Date(item.post.created_at).getTime()) / 3_600_000);
       const freshness = 4 / (1 + ageHours / 24);
-      const engagement = Math.log1p(post.likeCount) * 1.2 + Math.log1p(post.commentCount) * 1.8;
-      const followedCreator = followedAuthorIds.has(post.author_id) ? 1.5 : 0;
-      const likedCreator = likedAuthorIds.has(post.author_id) ? 3.5 : 0;
-      return { post, score: freshness + engagement + followedCreator + likedCreator };
+      const engagement = Math.log1p(item.post.likeCount) * 1.2 + Math.log1p(item.post.commentCount) * 1.8;
+      const followedCreator = followedAuthorIds.has(item.post.author_id) ? 1.5 : 0;
+      const likedCreator = likedAuthorIds.has(item.post.author_id) ? 3.5 : 0;
+      return { ...item, score: freshness + engagement + followedCreator + likedCreator };
     })
-    .sort((a, b) => b.score - a.score || new Date(b.post.created_at).getTime() - new Date(a.post.created_at).getTime())
-    .map(item => item.post);
+    .sort((a, b) => b.score - a.score || new Date(b.post.created_at).getTime() - new Date(a.post.created_at).getTime());
+
+  // Diversify the ranked feed: each time a creator is selected, their remaining
+  // posts receive a small penalty. Strong posts can still rank highly, while
+  // one prolific account is less likely to occupy the entire discovery screen.
+  const creatorExposure = new Map<string, number>();
+  const diversified: CreovaFeedPost[] = [];
+  const remaining = [...ranked];
+  while (remaining.length) {
+    let bestIndex = 0;
+    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      const exposurePenalty = (creatorExposure.get(candidate.post.author_id) ?? 0) * 2.25;
+      const adjustedScore = candidate.score - exposurePenalty;
+      if (adjustedScore > bestAdjustedScore) {
+        bestAdjustedScore = adjustedScore;
+        bestIndex = index;
+      }
+    }
+    const [selected] = remaining.splice(bestIndex, 1);
+    diversified.push(selected.post);
+    creatorExposure.set(selected.post.author_id, (creatorExposure.get(selected.post.author_id) ?? 0) + 1);
+  }
+  return diversified;
 }
 
 export async function getPostById(postId: string): Promise<CreovaFeedPost> {
