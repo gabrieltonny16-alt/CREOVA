@@ -1,31 +1,28 @@
 # CREOVA
 
-**An Active Skill Execution Network**
+**Create. Connect. Evolve.**
 
-CREOVA is built around one core loop:
+CREOVA is a full-scale social platform combining familiar social networking and photo-sharing experiences, short-form video and creator tools, and CREOVA's original execution ecosystem.
 
-**ACTION → EXECUTION → EVOLUTION → PROOF → DISCOVERY**
+## Product pillars
 
-## Product foundation
+1. **Social:** profiles, follows, feeds, posts, stories, comments, likes, sharing, and messaging.
+2. **Entertainment:** vertical video, creator tools, sounds, effects, discovery, and LIVE capabilities.
+3. **Evolution:** Anchors, Iterations, execution trees, proof of execution, collaboration, and skill discovery.
 
-- **Anchor:** an idea, challenge, skill, or original contribution.
-- **Iteration:** someone builds on an Anchor with execution, improvement, or a new interpretation.
-- **Execution Tree:** the connected history of how an Anchor evolves through contributions.
+## Clean rebuild
 
-CREOVA is not intended to be a generic scrolling-first social network. The product should help people create, execute, collaborate, develop skills, and show proof of progress.
+This branch is the clean application rebuild, starting from the documentation-only `main` branch. Previous application implementations remain on their original branches for reference and rollback; they are not part of this new application baseline.
 
-## Brand direction
+See:
+- [Product specification](docs/PRODUCT_SPECIFICATION.md)
+- [Rebuild plan](docs/REBUILD_PLAN.md)
 
-The selected visual direction is a premium planetary emblem: Earth in deep space, wrapped by a metallic-gold orbital C and a central play mark. The full artwork and a simplified launcher icon are separate brand assets.
+## Engineering principles
 
-## Development principles
-
-- Preserve existing work; inspect before changing.
-- Build and test real functionality, not mock screens.
-- Develop on feature branches; keep `main` protected from unfinished work.
-- Do not enable paid services, live payments, or external messaging without explicit approval.
-- Verify every test before reporting its result.
-
-## Current status
-
-Repository foundation created. Application source, runtime configuration, and database migrations still need to be brought into this repository before implementation or test claims can be made.
+- Real, tested functionality; no fake success states or demo-only controls.
+- Android and Web share one product identity and backend contracts.
+- Security and authorization are enforced server-side.
+- Preserve previous branches and production data until explicit migration/retirement approval.
+- No paid provider, live payment, advertising spend, or external messaging without explicit approval.
+- Build in verified increments and document what has and has not been tested.
