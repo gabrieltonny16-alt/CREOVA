@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithImage, getHomeFeed, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
@@ -156,7 +156,7 @@ function HomeScreen() {
   );
 }
 
-function DiscoverScreen() {
+function DiscoverScreen({ onOpenProfile }: { onOpenProfile: (username: string) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
   const [message, setMessage] = useState('');
@@ -182,12 +182,132 @@ function DiscoverScreen() {
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
     {results.map(item => <View key={item.id} style={styles.resultRow}>
-      <View style={styles.resultAvatar}><Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text></View>
-      <View style={styles.resultInfo}><Text style={styles.resultName}>{item.display_name}</Text><Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text></View>
+      <TouchableOpacity onPress={() => onOpenProfile(item.username)} style={styles.resultAvatar}>
+        {item.avatar_url ? <Image source={{ uri: item.avatar_url }} style={{ width: 44, height: 44, borderRadius: 22 }} /> : <Text style={styles.resultAvatarText}>{(item.display_name || item.username).slice(0,1).toUpperCase()}</Text>}
+      </TouchableOpacity>
+      <TouchableOpacity onPress={() => onOpenProfile(item.username)} style={styles.resultInfo}>
+        <Text style={styles.resultName}>{item.display_name}</Text>
+        <Text style={styles.resultHandle}>@{item.username}{item.is_private ? ' · Private' : ''}</Text>
+      </TouchableOpacity>
       <TouchableOpacity onPress={() => follow(item.id)} style={styles.followButton}><Text style={styles.followButtonText}>{(item as typeof item & {followState?: string}).followState === 'requested' ? 'Requested' : (item as typeof item & {followState?: string}).followState === 'following' ? 'Following' : 'Follow'}</Text></TouchableOpacity>
     </View>)}
     {query.trim().length < 2 && <EmptyState title="Discover something new" description="Search for CREOVA members by username. More discovery feeds and trending topics will follow." />}
     {query.trim().length >= 2 && !busy && results.length === 0 && <EmptyState title="No members found" description="Try another username." />}
+  </View>;
+}
+
+
+function PublicProfileScreen({ username, onBack, onOpenProfile }: {
+  username: string;
+  onBack: () => void;
+  onOpenProfile: (username: string) => void;
+}) {
+  const [profile, setProfile] = useState<Awaited<ReturnType<typeof getProfileByUsername>> | null>(null);
+  const [connections, setConnections] = useState<Awaited<ReturnType<typeof getProfileConnections>>>([]);
+  const [connectionType, setConnectionType] = useState<'followers' | 'following' | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function loadProfile() {
+    setLoading(true);
+    setMessage('');
+    try {
+      setProfile(await getProfileByUsername(username));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load this profile.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadProfile(); }, [username]);
+
+  async function toggleFollow() {
+    if (!profile) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      if (profile.follow_state === 'accepted' || profile.follow_state === 'pending') {
+        await unfollowProfile(profile.id);
+        setProfile({ ...profile, follow_state: 'not_following' });
+      } else {
+        const result = await followProfile(profile.id);
+        setProfile({ ...profile, follow_state: result === 'requested' ? 'pending' : 'accepted' });
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update follow status.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function showConnections(type: 'followers' | 'following') {
+    if (!profile) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      setConnections(await getProfileConnections(profile.id, type));
+      setConnectionType(type);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load this list.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (connectionType) {
+    return <View style={styles.screenContent}>
+      <TouchableOpacity onPress={() => setConnectionType(null)} style={styles.signOutButton}>
+        <Text style={styles.signOutText}>‹ Back to @{username}</Text>
+      </TouchableOpacity>
+      <Text style={styles.eyebrow}>CREOVA NETWORK</Text>
+      <Text style={styles.heading}>{connectionType === 'followers' ? 'Followers' : 'Following'}</Text>
+      {!!message && <Text style={styles.notice}>{message}</Text>}
+      {connections.map(person => <TouchableOpacity key={person.id} onPress={() => onOpenProfile(person.username)} style={styles.resultRow}>
+        <View style={styles.resultAvatar}>
+          {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={{ width: 44, height: 44, borderRadius: 22 }} /> : <Text style={styles.resultAvatarText}>{(person.display_name || person.username).slice(0, 1).toUpperCase()}</Text>}
+        </View>
+        <View style={styles.resultInfo}>
+          <Text style={styles.resultName}>{person.display_name}</Text>
+          <Text style={styles.resultHandle}>@{person.username}</Text>
+        </View>
+        <Text style={styles.optionArrow}>›</Text>
+      </TouchableOpacity>)}
+      {!busy && connections.length === 0 && <EmptyState title="No connections yet" description="This list will fill as people connect on CREOVA." />}
+    </View>;
+  }
+
+  return <View style={styles.screenContent}>
+    <TouchableOpacity onPress={onBack} style={styles.signOutButton}>
+      <Text style={styles.signOutText}>‹ Back to Explore</Text>
+    </TouchableOpacity>
+    <Text style={styles.eyebrow}>CREOVA MEMBER</Text>
+    <Text style={styles.heading}>Profile</Text>
+    {loading && <EmptyState title="Loading profile" description="Getting this member's CREOVA identity." />}
+    {!loading && profile && <View style={styles.profileCard}>
+      {profile.avatar_url
+        ? <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
+        : <View style={styles.avatar}><Text style={styles.avatarText}>{(profile.display_name || profile.username).slice(0, 1).toUpperCase()}</Text></View>}
+      <Text style={styles.profileName}>{profile.display_name}</Text>
+      <Text style={styles.profileHandle}>@{profile.username}{profile.is_private ? ' · PRIVATE' : ''}</Text>
+      <View style={styles.profileStats}>
+        <TouchableOpacity onPress={() => showConnections('followers')} style={styles.profileStat}>
+          <Text style={styles.profileStatNumber}>{profile.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text>
+        </TouchableOpacity>
+        <View style={styles.profileStatDivider} />
+        <TouchableOpacity onPress={() => showConnections('following')} style={styles.profileStat}>
+          <Text style={styles.profileStatNumber}>{profile.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.profileCopy}>{profile.bio || 'This member has not added a bio yet.'}</Text>
+      <TouchableOpacity disabled={busy} onPress={toggleFollow} style={styles.searchButton}>
+        <Text style={styles.searchButtonText}>{busy ? 'Please wait…' : profile.follow_state === 'accepted' ? 'Following · Unfollow' : profile.follow_state === 'pending' ? 'Requested · Cancel' : profile.follow_state === 'rejected' ? 'Follow again' : 'Follow'}</Text>
+      </TouchableOpacity>
+      {!!message && <Text style={styles.notice}>{message}</Text>}
+      {profile.is_private && profile.follow_state !== 'accepted' && <Text style={styles.privacyHint}>Follow this private account to see its posts and full activity.</Text>}
+    </View>}
+    {!loading && !profile && <EmptyState title="Profile unavailable" description={message || 'This CREOVA profile could not be found.'} />}
   </View>;
 }
 
@@ -456,12 +576,25 @@ function ProfileScreen() {
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [selectedProfileUsername, setSelectedProfileUsername] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
 
+  const openProfile = (username: string) => {
+    setSelectedProfileUsername(username);
+    setActiveTab('Discover');
+  };
+
   const renderScreen = () => {
+    if (selectedProfileUsername) {
+      return <PublicProfileScreen
+        username={selectedProfileUsername}
+        onBack={() => setSelectedProfileUsername(null)}
+        onOpenProfile={setSelectedProfileUsername}
+      />;
+    }
     switch (activeTab) {
-      case 'Discover': return <DiscoverScreen />;
+      case 'Discover': return <DiscoverScreen onOpenProfile={openProfile} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen />;
       case 'Profile': return <ProfileScreen />;
