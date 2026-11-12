@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -7,7 +7,7 @@ import { getMyProfile, getMyProfileCounts, getMyFollowList, getPublicProfile, ge
 import type { CreovaProfile, FollowListEntry } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
-import { createPost, createPostWithMedia, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned, getCreatorPosts } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentReactionSummary } from './src/features/posts/postService';
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
@@ -659,7 +659,7 @@ function MessageAudio({ uri }: { uri: string }) {
   );
 }
 
-function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { onOpenPost: (postId: string) => void; messageTargetId: string | null; onMessageTargetHandled: () => void }) {
   const voiceRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const [section, setSection] = useState<'Messages' | 'Notifications'>('Messages');
   const [messageSection, setMessageSection] = useState<'Chats' | 'Requests'>('Chats');
@@ -686,6 +686,7 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const [suggestedPeople, setSuggestedPeople] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
   const [selectedPeople, setSelectedPeople] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
   const [groupTitle, setGroupTitle] = useState('');
+  const startedTargetRef = useRef<string | null>(null);
 
   async function loadMessaging() {
     try {
@@ -750,6 +751,26 @@ function InboxScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
       setThreadLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!messageTargetId || !currentUserId || startedTargetRef.current === messageTargetId) return;
+    startedTargetRef.current = messageTargetId;
+    (async () => {
+      setMessage('Opening conversation…');
+      try {
+        const conversationId = await createConversation({ kind: 'direct', memberIds: [currentUserId, messageTargetId] });
+        await loadMessaging();
+        const conversation = (await getMyConversations()).find(item => item.id === conversationId);
+        if (!conversation) throw new Error('The conversation was created, but it is not visible in your inbox yet.');
+        await openConversation(conversation);
+        setMessage('');
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Could not open this conversation.');
+      } finally {
+        onMessageTargetHandled();
+      }
+    })();
+  }, [messageTargetId, currentUserId]);
 
   useEffect(() => {
     if (!activeConversation) return;
@@ -1556,7 +1577,7 @@ function StoriesSection() {
   );
 }
 
-function ProfileScreen() {
+function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: string) => void; onMessagePerson: (personId: string) => void }) {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
@@ -1579,6 +1600,7 @@ function ProfileScreen() {
   const [followListLoading, setFollowListLoading] = useState(false);
   const [followListError, setFollowListError] = useState('');
   const [selectedPerson, setSelectedPerson] = useState<CreovaProfile | null>(null);
+  const [selectedPersonPosts, setSelectedPersonPosts] = useState<CreovaFeedPost[]>([]);
   const [selectedPersonCounts, setSelectedPersonCounts] = useState({ posts: 0, followers: 0, following: 0 });
   const [selectedPersonFollowState, setSelectedPersonFollowState] = useState<'none' | 'requested' | 'following'>('none');
   const [personLoading, setPersonLoading] = useState(false);
@@ -1617,8 +1639,8 @@ function ProfileScreen() {
   async function openPersonProfile(personId: string) {
     setFollowListType(null); setSelectedPerson(null); setPersonError(''); setPersonLoading(true);
     try {
-      const [person, stats, states] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId])]);
-      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(states[personId] ?? 'none');
+      const [person, stats, states, creatorPosts] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId]), getCreatorPosts(personId)]);
+      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(states[personId] ?? 'none'); setSelectedPersonPosts(creatorPosts);
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not open this profile.'); }
     finally { setPersonLoading(false); }
   }
@@ -1896,11 +1918,12 @@ function ProfileScreen() {
     <Modal visible={personLoading || !!selectedPerson || !!personError} transparent animationType="slide" onRequestClose={() => { setSelectedPerson(null); setPersonError(''); }}>
       <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.68)' }}>
         <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => { setSelectedPerson(null); setPersonError(''); }} />
-        <View style={{ maxHeight: '82%', minHeight: '42%', backgroundColor: COLORS.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 20, gap: 16 }}>
+        <View style={{ maxHeight: '90%', minHeight: '42%', backgroundColor: COLORS.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 20, gap: 16 }}>
           <View style={styles.profileMenuHeader}>
             <Text style={styles.profileMenuTitle}>CREATOR PROFILE</Text>
             <TouchableOpacity onPress={() => { setSelectedPerson(null); setPersonError(''); }}><Text style={styles.profileMenuClose}>×</Text></TouchableOpacity>
           </View>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 16, paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
           {personLoading && <EmptyState title="Opening profile" description="Loading creator details from CREOVA." />}
           {!!personError && <Text style={styles.notice}>{personError}</Text>}
           {selectedPerson && <>
@@ -1915,11 +1938,32 @@ function ProfileScreen() {
               <View style={{ alignItems: 'center', gap: 3 }}><Text style={styles.analyticsValue}>{selectedPersonCounts.followers}</Text><Text style={styles.analyticsLabel}>Followers</Text></View>
               <View style={{ alignItems: 'center', gap: 3 }}><Text style={styles.analyticsValue}>{selectedPersonCounts.following}</Text><Text style={styles.analyticsLabel}>Following</Text></View>
             </View>
-            <View style={{ flexDirection: 'row', gap: 9 }}>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity disabled={personActionBusy} onPress={() => void toggleSelectedPersonFollow()} style={[styles.followButton, { flex: 1, minHeight: 44, opacity: personActionBusy ? 0.55 : 1 }]}><Text style={styles.followButtonText}>{personActionBusy ? 'Please wait…' : selectedPersonFollowState === 'following' ? 'Following' : selectedPersonFollowState === 'requested' ? 'Requested' : 'Follow'}</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => Share.share({ message: `Check out @${selectedPerson.username} on CREOVA.` }).catch(() => setPersonError('Could not open sharing options.'))} style={[styles.refreshButton, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}><Text style={styles.refreshText}>Share profile</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => { const personId = selectedPerson.id; setSelectedPerson(null); onMessagePerson(personId); }} style={[styles.followButton, { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center' }]}><Text style={styles.followButtonText}>Message</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => Share.share({ message: `Check out @${selectedPerson.username} on CREOVA.` }).catch(() => setPersonError('Could not open sharing options.'))} style={[styles.refreshButton, { flex: 1, alignItems: 'center', justifyContent: 'center' }]}><Text style={styles.refreshText}>Share</Text></TouchableOpacity>
+            </View>
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={styles.profileMenuTitle}>POSTS & VIDEOS</Text>
+                <Text style={styles.mutedSmall}>{selectedPersonPosts.length} SHOWN</Text>
+              </View>
+              {selectedPerson.is_private && selectedPersonFollowState !== 'following'
+                ? <Text style={styles.mutedSmall}>Follow and be accepted to view this creator’s posts.</Text>
+                : selectedPersonPosts.length === 0
+                  ? <EmptyState title="No posts yet" description="This creator’s posts and videos will appear here." />
+                  : <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }}>
+                      {selectedPersonPosts.map(post => {
+                        const media = post.media[0];
+                        return <TouchableOpacity key={post.id} onPress={() => { setSelectedPerson(null); onOpenPost(post.id); }} accessibilityRole="button" accessibilityLabel={`Open creator post${media?.mediaType === 'video' ? ', video' : ''}`} style={{ width: '32%', aspectRatio: 1, backgroundColor: COLORS.surfaceRaised, borderRadius: 7, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+                          {media ? <Image source={{ uri: media.signedUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text numberOfLines={4} style={{ color: COLORS.text, fontSize: 10, padding: 7 }}>{post.caption || 'CREOVA post'}</Text>}
+                          {media?.mediaType === 'video' && <View style={{ position: 'absolute', right: 7, top: 6, backgroundColor: '#000000A8', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 3 }}><Text style={{ color: '#FFFFFF', fontSize: 10 }}>▶</Text></View>}
+                        </TouchableOpacity>;
+                      })}
+                    </View>}
             </View>
           </>}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -1979,6 +2023,7 @@ function ProfileScreen() {
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [sharedPostId, setSharedPostId] = useState<string | null>(null);
+  const [messageTargetId, setMessageTargetId] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isWide = width >= 760;
@@ -1999,8 +2044,8 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
-      case 'Profile': return <ProfileScreen />;
+      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
+      case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} />;
       default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} />;
     }
   };
