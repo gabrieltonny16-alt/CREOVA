@@ -80,3 +80,36 @@ export async function respondToFollowRequest(followerId: string, accept: boolean
     .eq('follower_id', followerId).eq('status', 'pending');
   if (error) throw error;
 }
+
+
+export type CreovaProfileStats = {
+  followers: number;
+  following: number;
+};
+
+export async function getMyProfileStats(): Promise<CreovaProfileStats> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error('You must be signed in.');
+
+  const userId = userData.user.id;
+  const [followersResult, followingResult] = await Promise.all([
+    client.from('user_follows')
+      .select('follower_id', { count: 'exact', head: true })
+      .eq('following_id', userId)
+      .eq('status', 'accepted'),
+    client.from('user_follows')
+      .select('following_id', { count: 'exact', head: true })
+      .eq('follower_id', userId)
+      .eq('status', 'accepted'),
+  ]);
+
+  if (followersResult.error) throw followersResult.error;
+  if (followingResult.error) throw followingResult.error;
+
+  return {
+    followers: followersResult.count ?? 0,
+    following: followingResult.count ?? 0,
+  };
+}
