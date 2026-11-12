@@ -767,6 +767,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       } catch (error) {
         setMessage(error instanceof Error ? error.message : 'Could not open this conversation.');
       } finally {
+        startedTargetRef.current = null;
         onMessageTargetHandled();
       }
     })();
@@ -1923,7 +1924,7 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
             <Text style={styles.profileMenuTitle}>CREATOR PROFILE</Text>
             <TouchableOpacity onPress={() => { setSelectedPerson(null); setPersonError(''); }}><Text style={styles.profileMenuClose}>×</Text></TouchableOpacity>
           </View>
-          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 16, paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 16, paddingBottom: 20 }} showsVerticalScrollIndicator={false}>
           {personLoading && <EmptyState title="Opening profile" description="Loading creator details from CREOVA." />}
           {!!personError && <Text style={styles.notice}>{personError}</Text>}
           {selectedPerson && <>
@@ -1956,7 +1957,9 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
                       {selectedPersonPosts.map(post => {
                         const media = post.media[0];
                         return <TouchableOpacity key={post.id} onPress={() => { setSelectedPerson(null); onOpenPost(post.id); }} accessibilityRole="button" accessibilityLabel={`Open creator post${media?.mediaType === 'video' ? ', video' : ''}`} style={{ width: '32%', aspectRatio: 1, backgroundColor: COLORS.surfaceRaised, borderRadius: 7, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
-                          {media ? <Image source={{ uri: media.signedUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text numberOfLines={4} style={{ color: COLORS.text, fontSize: 10, padding: 7 }}>{post.caption || 'CREOVA post'}</Text>}
+                          {media?.mediaType === 'video'
+                            ? <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#05070D' }}><Text style={{ color: '#FFFFFF', fontSize: 22 }}>▶</Text><Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text></View>
+                            : media ? <Image source={{ uri: media.signedUrl }} style={{ width: '100%', height: '100%' }} resizeMode="cover" /> : <Text numberOfLines={4} style={{ color: COLORS.text, fontSize: 10, padding: 7 }}>{post.caption || 'CREOVA post'}</Text>}
                           {media?.mediaType === 'video' && <View style={{ position: 'absolute', right: 7, top: 6, backgroundColor: '#000000A8', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 3 }}><Text style={{ color: '#FFFFFF', fontSize: 10 }}>▶</Text></View>}
                         </TouchableOpacity>;
                       })}
