@@ -198,6 +198,116 @@ function DiscoverScreen({ onOpenProfile }: { onOpenProfile: (username: string) =
 }
 
 
+function PostGrid({ posts, loading, onOpenPost }: {
+  posts: Awaited<ReturnType<typeof getProfilePosts>>;
+  loading: boolean;
+  onOpenPost: (postId: string) => void;
+}) {
+  if (loading) return <EmptyState title="Loading posts" description="Preparing this creator's posts." />;
+  if (!posts.length) return <EmptyState title="No posts yet" description="Published photos, videos, and updates will appear here." />;
+  return <View style={styles.postGrid}>
+    {posts.map(post => {
+      const firstMedia = post.media[0];
+      return <TouchableOpacity
+        key={post.id}
+        onPress={() => onOpenPost(post.id)}
+        style={styles.gridTile}
+        accessibilityRole="button"
+        accessibilityLabel={`Open post by ${post.author?.username ?? 'creator'}`}
+      >
+        {firstMedia?.mediaType === 'image'
+          ? <Image source={{ uri: firstMedia.signedUrl }} style={styles.gridImage} resizeMode="cover" />
+          : firstMedia?.mediaType === 'video'
+            ? <View style={[styles.gridImage, styles.gridVideo]}>
+                <Text style={styles.gridVideoIcon}>▶</Text>
+                <Text style={styles.gridVideoDuration}>{firstMedia.durationSeconds ? `${Math.round(firstMedia.durationSeconds)}s` : 'VIDEO'}</Text>
+              </View>
+            : <View style={[styles.gridImage, styles.gridTextPost]}>
+                <Text style={styles.gridTextPreview} numberOfLines={5}>{post.caption || 'CREOVA post'}</Text>
+              </View>}
+        {post.media.length > 1 && <View style={styles.gridMultiple}><Text style={styles.gridMultipleText}>▧</Text></View>}
+      </TouchableOpacity>;
+    })}
+  </View>;
+}
+
+function VideoPostPlayer({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, instance => { instance.loop = false; });
+  return <VideoView
+    player={player}
+    style={styles.detailVideo}
+    contentFit="contain"
+    nativeControls
+    fullscreenOptions={{ enable: true }}
+  />;
+}
+
+function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => void }) {
+  const [post, setPost] = useState<Awaited<ReturnType<typeof getPostById>> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [likeBusy, setLikeBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    getPostById(postId).then(value => {
+      if (active) setPost(value);
+    }).catch(error => {
+      if (active) setMessage(error instanceof Error ? error.message : 'Could not load this post.');
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, [postId]);
+
+  async function toggleLike() {
+    if (!post || likeBusy) return;
+    setLikeBusy(true);
+    setMessage('');
+    try {
+      const liked = await togglePostLike(post.id);
+      setPost({ ...post, likedByMe: liked, likeCount: Math.max(0, post.likeCount + (liked ? 1 : -1)) });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update your like.');
+    } finally {
+      setLikeBusy(false);
+    }
+  }
+
+  return <View style={styles.screenContent}>
+    <TouchableOpacity onPress={onBack} style={styles.signOutButton}>
+      <Text style={styles.signOutText}>‹ Back to profile</Text>
+    </TouchableOpacity>
+    <Text style={styles.eyebrow}>CREOVA POST</Text>
+    <Text style={styles.heading}>Post</Text>
+    {loading && <EmptyState title="Loading post" description="Opening this post." />}
+    {!loading && !post && <EmptyState title="Post unavailable" description={message || 'This post may have been removed or is not visible to your account.'} />}
+    {post && <View style={styles.postDetailCard}>
+      <View style={styles.postHeader}>
+        <View style={styles.resultAvatar}>
+          <Text style={styles.resultAvatarText}>{(post.author?.display_name || post.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>
+        </View>
+        <View style={styles.postAuthor}>
+          <Text style={styles.resultName}>{post.author?.display_name || 'CREOVA member'}</Text>
+          <Text style={styles.resultHandle}>@{post.author?.username || 'member'} · {post.post_type.toUpperCase()} · {new Date(post.created_at).toLocaleDateString()}</Text>
+        </View>
+      </View>
+      {post.media.map(media => media.mediaType === 'video'
+        ? <VideoPostPlayer key={media.id} uri={media.signedUrl} />
+        : <Image key={media.id} source={{ uri: media.signedUrl }} style={styles.detailImage} resizeMode="contain" />)}
+      {!!post.caption && <Text style={styles.postCaption}>{post.caption}</Text>}
+      <View style={styles.postActions}>
+        <TouchableOpacity disabled={likeBusy} onPress={toggleLike} style={styles.postAction}>
+          <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
+        </TouchableOpacity>
+        <View style={styles.postAction}><Text style={styles.postActionText}>▢ {post.commentCount} comments</Text></View>
+      </View>
+      {!!message && <Text style={styles.notice}>{message}</Text>}
+    </View>}
+  </View>;
+}
+
 function PublicProfileScreen({ username, onBack, onOpenProfile }: {
   username: string;
   onBack: () => void;
