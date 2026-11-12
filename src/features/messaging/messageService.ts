@@ -132,7 +132,8 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
     const query = client.from('conversation_messages')
       .select('id', { count: 'exact', head: true })
       .eq('conversation_id', membership.conversation_id)
-      .neq('sender_id', auth.user.id);
+      .neq('sender_id', auth.user.id)
+      .is('deleted_at', null);
     const result = membership.last_read_at
       ? await query.gt('created_at', membership.last_read_at)
       : await query;
@@ -455,8 +456,12 @@ export async function deleteConversationMessage(messageId: string): Promise<bool
   if (typeof attachmentPath !== 'string' || !attachmentPath) return true;
   // The database has already hidden the message and media from every member.
   // Storage removal is best-effort; the storage SELECT policy blocks deleted media.
-  const { error: cleanupError } = await client.storage.from('creova-chat-media').remove([attachmentPath]);
-  return !cleanupError;
+  try {
+    const { error: cleanupError } = await client.storage.from('creova-chat-media').remove([attachmentPath]);
+    return !cleanupError;
+  } catch {
+    return false;
+  }
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
