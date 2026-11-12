@@ -472,6 +472,115 @@ export async function getCurrentMessagingUserId(): Promise<string> {
   return data.user.id;
 }
 
+
+export type ConversationPresenceMember = {
+  userId: string;
+  typing: boolean;
+};
+
+export type ConversationPresenceSubscription = {
+  setTyping: (typing: boolean) => void;
+  setVisible: (visible: boolean) => void;
+  unsubscribe: () => void;
+};
+
+export async function getShowActivityStatusPreference(): Promise<boolean> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to manage activity status.');
+  const { data, error } = await client
+    .from('profile_presence_settings')
+    .select('show_activity_status')
+    .eq('user_id', auth.user.id)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.show_activity_status ?? true;
+}
+
+export async function updateShowActivityStatusPreference(show: boolean): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to manage activity status.');
+  const { error } = await client.from('profile_presence_settings').upsert({
+    user_id: auth.user.id,
+    show_activity_status: show,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'user_id' });
+  if (error) throw error;
+}
+
+export function subscribeToConversationPresence(
+  conversationId: string,
+  userId: string,
+  showActivityStatus: boolean,
+  onPresence: (members: ConversationPresenceMember[]) => void,
+  onStatus?: (status: string) => void,
+): ConversationPresenceSubscription {
+  const client = requireSupabase();
+  let visible = showActivityStatus;
+  let typing = false;
+  let subscribed = false;
+  const channel = client.channel(`creova:conversation:${conversationId}`, {
+    config: {
+      private: true,
+      presence: { key: userId },
+    },
+  });
+
+  const syncPresence = () => {
+    const membersByUser = new Map<string, ConversationPresenceMember>();
+    const state = channel.presenceState() as Record<string, Array<{ user_id?: string; typing?: boolean }>>;
+    Object.values(state).forEach(sessions => sessions.forEach(session => {
+      if (!session.user_id) return;
+      const existing = membersByUser.get(session.user_id);
+      membersByUser.set(session.user_id, {
+        userId: session.user_id,
+        typing: Boolean(existing?.typing || session.typing),
+      });
+    }));
+    onPresence(Array.from(membersByUser.values()));
+  };
+
+  const track = () => {
+    if (!subscribed || !visible) return;
+    void channel.track({ user_id: userId, typing });
+  };
+
+  channel
+    .on('presence', { event: 'sync' }, syncPresence)
+    .on('presence', { event: 'join' }, syncPresence)
+    .on('presence', { event: 'leave' }, syncPresence)
+    .subscribe(status => {
+      onStatus?.(status);
+      subscribed = status === 'SUBSCRIBED';
+      if (subscribed) {
+        track();
+        syncPresence();
+      }
+    });
+
+  return {
+    setTyping(nextTyping: boolean) {
+      typing = nextTyping;
+      track();
+    },
+    setVisible(nextVisible: boolean) {
+      visible = nextVisible;
+      if (!visible && subscribed) {
+        void channel.untrack();
+      } else {
+        track();
+      }
+    },
+    unsubscribe() {
+      subscribed = false;
+      void client.removeChannel(channel);
+    },
+  };
+}
+
 export function subscribeToConversationMessages(
   conversationId: string,
   onMessage: (message: CreovaMessage) => void,
@@ -479,7 +588,7 @@ export function subscribeToConversationMessages(
   onReactionChange?: () => void,
 ): () => void {
   const client = requireSupabase();
-  const channel = client.channel(`conversation:${conversationId}`)
+  const channel = client.channel(`creova:conversation:${conversationId}`, { config: { private: true } })
     .on('postgres_changes', {
       event: 'INSERT',
       schema: 'public',
@@ -520,7 +629,7 @@ export function subscribeToInboxChanges(
   onNotificationsChange: () => void,
 ): () => void {
   const client = requireSupabase();
-  const channel = client.channel('creova:inbox-updates')
+  const channel = client.channel('creova:inbox-updates', { config: { private: true } })
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
