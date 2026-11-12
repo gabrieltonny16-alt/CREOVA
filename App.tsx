@@ -76,6 +76,18 @@ function FeedVideo({ uri }: { uri: string }) {
   return <VideoView player={player} style={{ width: '100%', aspectRatio: 4 / 5, backgroundColor: '#000000' }} contentFit="contain" nativeControls />;
 }
 
+function ShortVideoPlayer({ uri, active, height }: { uri: string; active: boolean; height: number }) {
+  const player = useVideoPlayer(uri, instance => {
+    instance.loop = true;
+    if (active) instance.play();
+  });
+  useEffect(() => {
+    if (active) player.play();
+    else player.pause();
+  }, [active, player]);
+  return <VideoView player={player} style={{ width: '100%', height, backgroundColor: '#000000' }} contentFit="cover" nativeControls={false} />;
+}
+
 function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   const player = useVideoPlayer(uri, instance => {
     instance.loop = false;
@@ -88,9 +100,13 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
-function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: string | null; onSharedPostHandled: () => void }) {
+function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
-  const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('following');
+  const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
+  const [activeShortIndex, setActiveShortIndex] = useState(0);
+  const { height: windowHeight } = useWindowDimensions();
+  const shortFeedHeight = Math.max(420, windowHeight - 138);
+  const shortPosts = posts.filter(post => post.media?.some(media => media.mediaType === 'video'));
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyPost, setBusyPost] = useState('');
@@ -174,8 +190,12 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
   }
 
   useEffect(() => {
+    onForYouModeChange(feedMode === 'for-you');
+    setActiveShortIndex(0);
     void loadFeed();
   }, [feedMode]);
+
+  useEffect(() => () => onForYouModeChange(false), []);
 
   useEffect(() => {
     if (!sharedPostId) return;
@@ -282,7 +302,62 @@ function HomeScreen({ sharedPostId, onSharedPostHandled }: { sharedPostId: strin
           ? 'Follow people or publish your first post. Their updates will appear here.'
           : 'Public posts from creators across CREOVA will appear here.'}
       />}
-      {posts.map(post => (
+      {feedMode === 'for-you' ? (
+        <View style={{ marginHorizontal: -12, backgroundColor: '#000000' }}>
+          {!loading && shortPosts.length === 0 && <EmptyState title="Your For You feed is ready" description="Public creator videos will appear here as they are published. Try following creators or sharing your first video." />}
+          {!loading && shortPosts.length > 0 && (
+            <ScrollView
+              style={{ height: shortFeedHeight }}
+              contentContainerStyle={{ paddingBottom: 0 }}
+              pagingEnabled
+              snapToInterval={shortFeedHeight}
+              decelerationRate="fast"
+              showsVerticalScrollIndicator={false}
+              nestedScrollEnabled
+              onMomentumScrollEnd={event => setActiveShortIndex(Math.max(0, Math.round(event.nativeEvent.contentOffset.y / shortFeedHeight)))}
+            >
+              {shortPosts.map((post, index) => {
+                const video = post.media?.find(media => media.mediaType === 'video');
+                if (!video) return null;
+                return (
+                  <View key={post.id} style={{ height: shortFeedHeight, width: '100%', backgroundColor: '#000000', overflow: 'hidden' }}>
+                    <ShortVideoPlayer uri={video.signedUrl} active={index === activeShortIndex && feedMode === 'for-you'} height={shortFeedHeight} />
+                    <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 18 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
+                        <View style={{ flex: 1, gap: 8, paddingBottom: 5 }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>@{post.author?.username || 'creator'}</Text>
+                          {!!post.caption && <Text numberOfLines={3} style={{ color: '#FFFFFF', fontSize: 13, lineHeight: 19 }}>{post.caption}</Text>}
+                          <Text style={{ color: '#D6DCE8', fontSize: 10 }}>CREOVA · For You</Text>
+                        </View>
+                        <View style={{ alignItems: 'center', gap: 17, paddingBottom: 3 }}>
+                          <TouchableOpacity disabled={busyPost === post.id || !!postActionBusy} onPress={() => likePost(post.id)} style={{ alignItems: 'center', gap: 3 }}>
+                            <Text style={{ color: post.likedByMe ? '#FF6B91' : '#FFFFFF', fontSize: 28 }}>♥</Text>
+                            <Text style={{ color: '#FFFFFF', fontSize: 10 }}>{post.likeCount}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => openComments(post)} style={{ alignItems: 'center', gap: 3 }}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 25 }}>▢</Text>
+                            <Text style={{ color: '#FFFFFF', fontSize: 10 }}>{post.commentCount}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={!!postActionBusy} onPress={() => repostPost(post)} style={{ alignItems: 'center', gap: 3 }}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 25 }}>↻</Text>
+                            <Text style={{ color: '#FFFFFF', fontSize: 10 }}>{post.repostCount}</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={!!postActionBusy} onPress={() => sharePost(post)}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 25 }}>↗</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity disabled={!!postActionBusy} onPress={() => savePost(post)}>
+                            <Text style={{ color: post.savedByMe ? '#8DB8FF' : '#FFFFFF', fontSize: 23 }}>{post.savedByMe ? '▮' : '▯'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+      ) : posts.map(post => (
         <View key={post.id} style={[styles.postCard, { marginHorizontal: -16 }]}>
           {!!post.repostedBy && <Text style={{ color: '#A7C6FF', fontSize: 11, fontWeight: '700', marginBottom: 9 }}>↻ {post.repostedBy.display_name || post.repostedBy.username} reposted</Text>}
           <View style={[styles.postHeader, { paddingHorizontal: 16, paddingTop: 4 }]}>
@@ -2042,6 +2117,7 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
 
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
+  const [homeForYou, setHomeForYou] = useState(true);
   const [sharedPostId, setSharedPostId] = useState<string | null>(null);
   const [messageTargetId, setMessageTargetId] = useState<string | null>(null);
   const { width } = useWindowDimensions();
@@ -2066,7 +2142,7 @@ function MainApp() {
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
       case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} />;
     }
   };
 
@@ -2081,7 +2157,7 @@ function MainApp() {
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
-          <ScrollView style={styles.mainScroll} scrollEnabled={activeTab !== 'Inbox'} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : activeTab === 'Inbox' ? [styles.mainScrollContent, { flexGrow: 1 }] : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.mainScroll} scrollEnabled={activeTab !== 'Inbox' && !(activeTab === 'Home' && homeForYou)} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : activeTab === 'Inbox' ? [styles.mainScrollContent, { flexGrow: 1 }] : activeTab === 'Home' && homeForYou ? [styles.mainScrollContent, { flexGrow: 1 }] : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
             <View style={[styles.contentMax, isWide && styles.contentMaxWide, activeTab === 'Inbox' && { flex: 1 }]}>{renderScreen()}</View>
           </ScrollView>
         </View>
