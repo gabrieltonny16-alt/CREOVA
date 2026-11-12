@@ -15,8 +15,9 @@ import {
   getMyConversations, getConversationMessages, searchConversationMessages, getConversationMessagesAround, createConversation, sendMessage,
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId, setMessageReaction,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
+  getShowActivityStatusPreference, updateShowActivityStatusPreference, subscribeToConversationPresence,
 } from './src/features/messaging/messageService';
-import type { CreovaConversation, CreovaMessage, MessageAttachmentInput, MessageReactionEmoji } from './src/features/messaging/messageService';
+import type { CreovaConversation, CreovaMessage, MessageAttachmentInput, MessageReactionEmoji, ConversationPresenceMember, ConversationPresenceSubscription } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -946,6 +947,12 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [messageSearchLoading, setMessageSearchLoading] = useState(false);
   const [messageSearchHasRun, setMessageSearchHasRun] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
+  const [presenceMembers, setPresenceMembers] = useState<ConversationPresenceMember[]>([]);
+  const [showActivityStatus, setShowActivityStatus] = useState(true);
+  const [activityStatusSaving, setActivityStatusSaving] = useState(false);
+  const presenceSubscriptionRef = useRef<ConversationPresenceSubscription | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingActiveRef = useRef(false);
   const [draft, setDraft] = useState('');
   const [draftClientId, setDraftClientId] = useState<string | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<MessageAttachmentInput | null>(null);
@@ -987,6 +994,9 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     void loadMessaging();
     void loadActivity();
     void loadFollowRequests();
+    void getShowActivityStatusPreference().then(setShowActivityStatus).catch(error => {
+      setMessage(error instanceof Error ? error.message : 'Could not load activity status settings.');
+    });
   }, []);
 
   useEffect(() => subscribeToInboxChanges(
@@ -1066,6 +1076,33 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     });
     return unsubscribe;
   }, [activeConversation?.id]);
+
+  useEffect(() => {
+    if (!activeConversation || activeConversation.membershipStatus !== 'accepted' || !currentUserId) {
+      setPresenceMembers([]);
+      return;
+    }
+    const subscription = subscribeToConversationPresence(
+      activeConversation.id,
+      currentUserId,
+      showActivityStatus,
+      setPresenceMembers,
+    );
+    presenceSubscriptionRef.current = subscription;
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+      typingActiveRef.current = false;
+      presenceSubscriptionRef.current = null;
+      subscription.unsubscribe();
+      setPresenceMembers([]);
+    };
+  }, [activeConversation?.id, activeConversation?.membershipStatus, currentUserId]);
+
+  useEffect(() => {
+    presenceSubscriptionRef.current?.setVisible(showActivityStatus);
+    if (!showActivityStatus) setPresenceMembers([]);
+  }, [showActivityStatus]);
 
   useEffect(() => {
     setReactionPickerMessageId('');
@@ -1155,6 +1192,42 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not update your reaction.');
     }
+  }
+
+  async function changeActivityStatusVisibility(nextValue: boolean) {
+    setActivityStatusSaving(true);
+    try {
+      await updateShowActivityStatusPreference(nextValue);
+      setShowActivityStatus(nextValue);
+      presenceSubscriptionRef.current?.setVisible(nextValue);
+      if (!nextValue) setPresenceMembers([]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update activity status.');
+    } finally {
+      setActivityStatusSaving(false);
+    }
+  }
+
+  function handleDraftChange(value: string) {
+    if (value !== draft) setDraftClientId(null);
+    setDraft(value);
+    if (!value.trim()) {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+      if (typingActiveRef.current) presenceSubscriptionRef.current?.setTyping(false);
+      typingActiveRef.current = false;
+      return;
+    }
+    if (!typingActiveRef.current) {
+      typingActiveRef.current = true;
+      presenceSubscriptionRef.current?.setTyping(true);
+    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      typingActiveRef.current = false;
+      typingTimeoutRef.current = null;
+      presenceSubscriptionRef.current?.setTyping(false);
+    }, 1800);
   }
 
   async function runMessageSearch() {
@@ -1284,6 +1357,10 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       const clientMessageId = draftClientId ?? createMessageClientId();
       setDraftClientId(clientMessageId);
       const sent = await sendMessage(activeConversation.id, draft, clientMessageId, pendingAttachment ?? undefined);
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+      typingActiveRef.current = false;
+      presenceSubscriptionRef.current?.setTyping(false);
       setThreadMessages(items => items.some(item => item.id === sent.id) ? items : [...items, sent]);
       setDraft('');
       setPendingAttachment(null);
@@ -1404,6 +1481,14 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     && (!pendingOthers || !activeConversation.lastMessage);
   const waitingForReply = !!activeConversation && activeConversation.membershipStatus === 'accepted'
     && !declinedOthers && pendingOthers && !!activeConversation.lastMessage;
+  const onlineParticipants = showActivityStatus
+    ? presenceMembers.filter(person => person.userId !== currentUserId)
+    : [];
+  const typingParticipants = onlineParticipants.filter(person => person.typing);
+  const typingNames = typingParticipants.map(person => {
+    const participant = activeConversation?.participants.find(item => item.user_id === person.userId);
+    return participant?.profile?.display_name || participant?.profile?.username || 'Someone';
+  });
 
   return <View style={{ flex: 1, gap: 12 }}>
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -1565,8 +1650,20 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
           <TouchableOpacity onPress={() => { setActiveConversation(null); void loadMessaging(); }}><Text style={{ color: '#A7C6FF', fontSize: 25 }}>‹</Text></TouchableOpacity>
           <View style={{ flex: 1 }}>
             <Text style={styles.resultName}>{activeConversation ? conversationTitle(activeConversation) : 'Conversation'}</Text>
-            <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}</Text>
+            <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}{showActivityStatus && onlineParticipants.length > 0 ? ` · ${onlineParticipants.length === 1 ? 'Active now' : `${onlineParticipants.length} active`}` : ''}</Text>
           </View>
+          {activeConversation?.membershipStatus === 'accepted' && <View style={{ alignItems: 'center', gap: 1 }}>
+            <Text style={{ color: COLORS.muted, fontSize: 8, fontWeight: '800' }}>ACTIVITY</Text>
+            <Switch
+              value={showActivityStatus}
+              onValueChange={value => void changeActivityStatusVisibility(value)}
+              disabled={activityStatusSaving}
+              accessibilityRole="switch"
+              accessibilityLabel="Show activity status"
+              trackColor={{ false: '#526078', true: '#315F9D' }}
+              thumbColor={showActivityStatus ? '#A7C6FF' : '#D5DCE8'}
+            />
+          </View>}
           <TouchableOpacity
             onPress={() => {
               setMessageSearchOpen(value => !value);
@@ -1581,6 +1678,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <Text style={{ color: '#A7C6FF', fontSize: 23 }}>⌕</Text>
           </TouchableOpacity>
         </View>
+        {showActivityStatus && typingParticipants.length > 0 && <Text style={{ color: '#A7C6FF', fontSize: 11, paddingHorizontal: 15, paddingVertical: 5 }}>{typingNames.length === 1 ? `${typingNames[0]} is typing…` : typingNames.length === 2 ? `${typingNames[0]} and ${typingNames[1]} are typing…` : `${typingNames.length} people are typing…`}</Text>}
         {messageSearchOpen && <View style={{ paddingHorizontal: 13, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <TextInput
@@ -1705,7 +1803,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <TouchableOpacity disabled={!!busyId || !!pendingAttachment} onPress={() => void (recordingVoice ? stopVoiceRecording() : startVoiceRecording())} style={{ width: 40, height: 44, borderRadius: 20, backgroundColor: recordingVoice ? '#8B2635' : COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}>
               <Text style={{ color: COLORS.text, fontSize: 17 }}>{recordingVoice ? '■' : '●'}</Text>
             </TouchableOpacity>
-            <TextInput value={draft} onChangeText={value => { if (value !== draft) setDraftClientId(null); setDraft(value); }} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
+            <TextInput value={draft} onChangeText={handleDraftChange} multiline maxLength={5000} placeholder="Write a message…" placeholderTextColor="#71819C" style={{ flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, color: COLORS.text, paddingHorizontal: 15, paddingVertical: 11, fontSize: 13 }} />
             <TouchableOpacity disabled={(!draft.trim() && !pendingAttachment) || busyId === 'send' || recordingVoice} onPress={() => void submitMessage()} style={{ minHeight: 44, borderRadius: 22, paddingHorizontal: 14, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', opacity: (!draft.trim() && !pendingAttachment) || busyId === 'send' || recordingVoice ? 0.5 : 1 }}>
               <Text style={styles.publishButtonText}>{busyId === 'send' ? '…' : 'Send'}</Text>
             </TouchableOpacity>
