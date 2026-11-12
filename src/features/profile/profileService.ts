@@ -54,11 +54,14 @@ export async function updateMyProfile(input: Pick<CreovaProfile, 'display_name' 
 }
 
 export async function searchProfiles(search: string): Promise<Pick<CreovaProfile, 'id' | 'username' | 'display_name' | 'avatar_url' | 'is_private'>[]> {
-  const query = search.trim().replace(/[%_,]/g, '');
+  // Search both public creator identifiers so people can discover accounts
+  // by their handle or the display name they are known by.
+  const query = search.trim().replace(/[%_,().]/g, '');
   if (query.length < 2) return [];
+  const pattern = `%${query}%`;
   const { data, error } = await requireSupabase().from('profiles')
     .select('id, username, display_name, avatar_url, is_private')
-    .ilike('username', `%${query}%`)
+    .or(`username.ilike.${pattern},display_name.ilike.${pattern}`)
     .limit(20);
   if (error) throw error;
   return data ?? [];
