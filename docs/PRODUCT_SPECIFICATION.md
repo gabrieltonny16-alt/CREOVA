@@ -79,7 +79,7 @@ Reports; blocking and privacy controls; automated triage with human review; mode
 - CDN/adaptive video delivery as scale and budget require.
 - Observability, backups, restore tests, rate limits, secrets management, and staged deployment.
 
-Use the isolated CREOVA-DEV environment for development migrations and runtime verification after confirming its project identity and credentials. Keep migrations versioned and review security/RLS/storage policies. Never apply development migrations to production by assumption.
+Use the isolated CREOVA-DEV environment for development migrations and runtime verification. Its 27 applied migrations now match the repository filenames and versions one-to-one. For future schema changes, add a new reviewed migration and verify it on CREOVA-DEV; never replay existing migrations or apply development changes to production by assumption.
 
 ## Delivery phases
 
