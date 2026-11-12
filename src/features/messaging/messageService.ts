@@ -178,7 +178,7 @@ export async function searchConversationMessages(conversationId: string, query: 
     .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
     .eq('conversation_id', conversationId)
     .not('body', 'is', null)
-    .ilike('body', \`%\${escaped}%\`)
+    .ilike('body', `%${escaped}%`)
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw error;
