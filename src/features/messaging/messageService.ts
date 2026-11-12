@@ -4,6 +4,7 @@ export type MessageParticipant = {
   user_id: string;
   role: 'admin' | 'member';
   membership_status: 'accepted' | 'pending' | 'declined' | 'left';
+  last_read_at?: string | null;
   profile: {
     username: string;
     display_name: string;
@@ -84,7 +85,7 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
 
   const [memberResult, messageResult] = await Promise.all([
     client.from('conversation_members')
-      .select('conversation_id, user_id, role, membership_status, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
+      .select('conversation_id, user_id, role, membership_status, last_read_at, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids),
     client.from('conversation_messages')
       .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
@@ -155,6 +156,69 @@ export async function getConversationMessages(conversationId: string): Promise<C
   const signedByPath = new Map<string, string>();
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage.from('creova-chat-media').createSignedUrls(paths, 3600);
+    if (signedError) throw signedError;
+    (signed ?? []).forEach(item => {
+      if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+    });
+  }
+  return rows.map(row => ({
+    ...row,
+    attachmentUrl: row.attachment_path ? signedByPath.get(row.attachment_path) ?? null : null,
+    sender: Array.isArray(row.sender) ? row.sender[0] : row.sender,
+  })) as CreovaMessage[];
+}
+
+
+export async function searchConversationMessages(conversationId: string, query: string): Promise<CreovaMessage[]> {
+  const term = query.trim();
+  if (term.length < 2) return [];
+  const escaped = term.replace(/[\\%_]/g, '\\$&');
+  const { data, error } = await requireSupabase()
+    .from('conversation_messages')
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+    .eq('conversation_id', conversationId)
+    .not('body', 'is', null)
+    .ilike('body', `%${escaped}%`)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    ...row,
+    attachmentUrl: null,
+    sender: Array.isArray(row.sender) ? row.sender[0] : row.sender,
+  })) as CreovaMessage[];
+}
+
+export async function getConversationMessagesAround(
+  conversationId: string,
+  messageId: string,
+): Promise<CreovaMessage[]> {
+  const client = requireSupabase();
+  const columns = 'id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)';
+  const { data: target, error: targetError } = await client
+    .from('conversation_messages')
+    .select(columns)
+    .eq('conversation_id', conversationId)
+    .eq('id', messageId)
+    .single();
+  if (targetError) throw targetError;
+
+  const { data: before, error: beforeError } = await client
+    .from('conversation_messages')
+    .select(columns)
+    .eq('conversation_id', conversationId)
+    .lt('created_at', target.created_at)
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (beforeError) throw beforeError;
+
+  const rows = [...(before ?? []).reverse(), target] as any[];
+  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const signedByPath = new Map<string, string>();
+  if (paths.length) {
+    const { data: signed, error: signedError } = await client.storage
+      .from('creova-chat-media')
+      .createSignedUrls(paths, 3600);
     if (signedError) throw signedError;
     (signed ?? []).forEach(item => {
       if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
