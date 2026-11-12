@@ -354,7 +354,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
         <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', letterSpacing: 2.2 }}>CREOVA</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           <TouchableOpacity onPress={onOpenNotifications} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Open notifications">
-            <Text style={styles.topBarActionText}>♧</Text>
+            <Text style={styles.topBarActionText}>🔔</Text>
           </TouchableOpacity>
           <TouchableOpacity onPress={onOpenExplore} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Search and explore CREOVA">
             <Text style={styles.topBarActionText}>⌕</Text>
@@ -2723,6 +2723,7 @@ function MainApp() {
   const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null);
   const [sharedPostId, setSharedPostId] = useState<string | null>(null);
   const [messageTargetId, setMessageTargetId] = useState<string | null>(null);
+  const [inboxInitialSection, setInboxInitialSection] = useState<'Messages' | 'Notifications'>('Messages');
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isWide = width >= 760;
@@ -2743,9 +2744,9 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onBack={() => setActiveTab('Home')} />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} initialSection="Notifications" />;
-      case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenExplore={() => setActiveTab('Discover')} onOpenNotifications={() => setActiveTab('Inbox')} />;
+      case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} initialSection={inboxInitialSection} />;
+      case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setInboxInitialSection('Messages'); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenExplore={() => setActiveTab('Discover')} onOpenNotifications={() => { setInboxInitialSection('Notifications'); setActiveTab('Inbox'); }} />;
     }
   };
 
@@ -2755,7 +2756,7 @@ function MainApp() {
       <View style={styles.app}>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
-            {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
+            {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { if (tab.key === 'Inbox') setInboxInitialSection('Messages'); setActiveTab(tab.key); }} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
               <Text style={[styles.sideNavSymbol, activeTab === tab.key && styles.activeText]}>{tab.symbol}</Text>
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
@@ -2765,7 +2766,7 @@ function MainApp() {
           </ScrollView>
         </View>
         {!isWide && <View style={[styles.bottomNav, { height: 66 + insets.bottom, paddingTop: 4, paddingBottom: Math.max(insets.bottom, 8) }]}>
-          {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
+          {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { if (tab.key === 'Inbox') setInboxInitialSection('Messages'); setActiveTab(tab.key); }} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
             <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
             <Text style={[styles.bottomNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
           </TouchableOpacity>)}
