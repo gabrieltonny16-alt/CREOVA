@@ -943,6 +943,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
   const [messageSearchResults, setMessageSearchResults] = useState<CreovaMessage[]>([]);
   const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchHasRun, setMessageSearchHasRun] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [draft, setDraft] = useState('');
   const [draftClientId, setDraftClientId] = useState<string | null>(null);
@@ -1130,10 +1131,12 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   async function runMessageSearch() {
     if (!activeConversation || messageSearchQuery.trim().length < 2 || messageSearchLoading) return;
     setMessageSearchLoading(true);
+    setMessageSearchHasRun(false);
     setMessageSearchResults([]);
     try {
       const results = await searchConversationMessages(activeConversation.id, messageSearchQuery);
       setMessageSearchResults(results);
+      setMessageSearchHasRun(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not search this conversation.');
     } finally {
@@ -1150,6 +1153,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       setMessageSearchOpen(false);
       setMessageSearchQuery('');
       setMessageSearchResults([]);
+      setMessageSearchHasRun(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not open this message.');
     } finally {
@@ -1539,6 +1543,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
               setMessageSearchOpen(value => !value);
               setMessageSearchQuery('');
               setMessageSearchResults([]);
+              setMessageSearchHasRun(false);
             }}
             accessibilityRole="button"
             accessibilityLabel={messageSearchOpen ? 'Close message search' : 'Search messages in this conversation'}
@@ -1551,7 +1556,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <TextInput
               value={messageSearchQuery}
-              onChangeText={setMessageSearchQuery}
+              onChangeText={value => { setMessageSearchQuery(value); setMessageSearchResults([]); setMessageSearchHasRun(false); }}
               onSubmitEditing={() => void runMessageSearch()}
               returnKeyType="search"
               autoCapitalize="sentences"
@@ -1569,7 +1574,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
           </View>
           {messageSearchQuery.trim().length < 2 && <Text style={styles.mutedSmall}>Enter at least 2 characters to search this conversation.</Text>}
           {messageSearchLoading && <Text style={styles.notice}>Searching messages…</Text>}
-          {!messageSearchLoading && messageSearchQuery.trim().length >= 2 && messageSearchResults.length === 0 && <Text style={styles.notice}>No matching messages yet. Run the search to check again.</Text>}
+          {messageSearchHasRun && !messageSearchLoading && messageSearchResults.length === 0 && <Text style={styles.notice}>No messages matched that search.</Text>}
           {messageSearchResults.length > 0 && <ScrollView style={{ maxHeight: 190 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 6 }}>
             {messageSearchResults.map(result => (
               <TouchableOpacity
