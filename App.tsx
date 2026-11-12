@@ -2093,7 +2093,17 @@ function ProfileScreen({ onOpenPost, onMessagePerson, openPersonId, onOpenPerson
       } else {
         const next = await followProfile(selectedPerson.id);
         setSelectedPersonFollowState(next);
-        if (next === 'following') setSelectedPersonCounts(v => ({ ...v, followers: v.followers + 1 }));
+        if (next === 'following') {
+          setSelectedPersonCounts(v => ({ ...v, followers: v.followers + 1 }));
+          if (selectedPerson.is_private) {
+            const [creatorPosts, stats] = await Promise.all([
+              getCreatorPosts(selectedPerson.id),
+              getPublicProfileCounts(selectedPerson.id),
+            ]);
+            setSelectedPersonPosts(creatorPosts);
+            setSelectedPersonCounts(v => ({ ...v, posts: stats.posts }));
+          }
+        }
       }
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not update follow status.'); }
     finally { setPersonActionBusy(false); }
