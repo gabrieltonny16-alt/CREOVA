@@ -341,6 +341,7 @@ function PublicProfileScreen({ username, onBack, onOpenProfile, onOpenPost }: {
   }
 
   useEffect(() => {
+    setProfile(null);
     setProfilePosts([]);
     setConnectionType(null);
     setConnections([]);
@@ -458,7 +459,7 @@ function CreateScreen() {
       });
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        const mediaType = asset.type === 'video' ? 'video' : 'image';
+        const mediaType = asset.type === 'video' || asset.mimeType?.startsWith('video/') ? 'video' : 'image';
         const mimeType = asset.mimeType ?? (mediaType === 'image' ? 'image/jpeg' : '');
         const allowed = mediaType === 'image'
           ? ['image/jpeg', 'image/png', 'image/webp']
@@ -502,7 +503,7 @@ function CreateScreen() {
             fileSize: selectedMedia.fileSize ?? null,
             width: selectedMedia.width,
             height: selectedMedia.height,
-            mediaType: selectedMedia.type === 'video' ? 'video' : 'image',
+            mediaType: selectedMedia.type === 'video' || selectedMedia.mimeType?.startsWith('video/') ? 'video' : 'image',
             durationSeconds: selectedMedia.type === 'video' && selectedMedia.duration
               ? selectedMedia.duration / 1000
               : null,
