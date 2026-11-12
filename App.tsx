@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import type { ViewToken } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -586,6 +587,33 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
   );
 }
 
+function ExploreVideoPreview({ uri }: { uri: string }) {
+  const [frameRendered, setFrameRendered] = useState(false);
+  const player = useVideoPlayer(uri, instance => {
+    instance.muted = true;
+    instance.loop = false;
+    instance.play();
+  });
+
+  return <View style={{ flex: 1, backgroundColor: '#111D31' }}>
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="cover"
+      nativeControls={false}
+      allowsPictureInPicture={false}
+      onFirstFrameRender={() => {
+        setFrameRendered(true);
+        player.pause();
+      }}
+    />
+    {!frameRendered && <View style={{ ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111D31' }}>
+      <Text style={{ color: COLORS.text, fontSize: 27 }}>▶</Text>
+      <Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text>
+    </View>}
+  </View>;
+}
+
 function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) => void; onBack: () => void }) {
   const [mode, setMode] = useState<'posts' | 'people'>('posts');
   const [query, setQuery] = useState('');
@@ -595,6 +623,14 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
   const [busy, setBusy] = useState(false);
   const [postsBusy, setPostsBusy] = useState(true);
   const [busyFollowId, setBusyFollowId] = useState('');
+  const [visibleVideoIds, setVisibleVideoIds] = useState<Set<string>>(new Set());
+  const { height: windowHeight } = useWindowDimensions();
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    setVisibleVideoIds(new Set(viewableItems
+      .filter(item => item.isViewable)
+      .map(item => (item.item as CreovaFeedPost).id)));
+  }).current;
 
   useEffect(() => {
     let active = true;
@@ -697,20 +733,35 @@ function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) =
     </> : <>
       {postsBusy && <Text style={styles.notice}>Loading posts and videos…</Text>}
       {!postsBusy && visiblePosts.length === 0 && <EmptyState title={term ? 'No matching posts' : 'Nothing to explore yet'} description={term ? 'Try another caption or creator name.' : 'Public posts and videos from creators will appear here.'} />}
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
-        {visiblePosts.map(post => {
+      {!postsBusy && visiblePosts.length > 0 && <FlatList
+        data={visiblePosts}
+        keyExtractor={post => post.id}
+        numColumns={3}
+        style={{ height: Math.max(380, windowHeight - 300) }}
+        contentContainerStyle={{ paddingBottom: 18 }}
+        columnWrapperStyle={{ gap: 5, marginBottom: 5 }}
+        initialNumToRender={9}
+        maxToRenderPerBatch={6}
+        windowSize={3}
+        removeClippedSubviews={false}
+        viewabilityConfig={viewabilityConfig}
+        onViewableItemsChanged={onViewableItemsChanged}
+        renderItem={({ item: post }) => {
           const media = post.media[0];
-          return <TouchableOpacity key={post.id} onPress={() => onOpenPost(post.id)} activeOpacity={0.8} style={{ width: '32%', aspectRatio: 0.78, borderRadius: 9, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border }}>
+          const isVisible = visibleVideoIds.has(post.id);
+          return <TouchableOpacity onPress={() => onOpenPost(post.id)} activeOpacity={0.8} style={{ flex: 1, aspectRatio: 0.78, borderRadius: 9, overflow: 'hidden', backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border }}>
             {media?.mediaType === 'image' ? <Image source={{ uri: media.signedUrl }} resizeMode="cover" style={{ width: '100%', height: '100%' }} />
-              : media?.mediaType === 'video' ? <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#111D31' }}><Text style={{ color: COLORS.text, fontSize: 27 }}>▶</Text><Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text></View>
+              : media?.mediaType === 'video' ? <View style={{ flex: 1, backgroundColor: '#111D31' }}>
+                {isVisible ? <ExploreVideoPreview uri={media.signedUrl} /> : <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}><Text style={{ color: COLORS.text, fontSize: 27 }}>▶</Text><Text style={{ color: COLORS.muted, fontSize: 9, marginTop: 4 }}>VIDEO</Text></View>}
+              </View>
               : <View style={{ flex: 1, padding: 7, justifyContent: 'center' }}><Text numberOfLines={7} style={{ color: COLORS.text, fontSize: 11 }}>{post.caption || 'CREOVA post'}</Text></View>}
             <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 6, paddingVertical: 5, backgroundColor: 'rgba(0,0,0,0.72)' }}>
               <Text numberOfLines={1} style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '700' }}>@{post.author?.username ?? 'creator'}</Text>
               <Text style={{ color: '#D8E2F4', fontSize: 8 }}>♥ {post.likeCount}  ·  ▢ {post.commentCount}</Text>
             </View>
           </TouchableOpacity>;
-        })}
-      </View>
+        }}
+      />}
     </>}
   </View>;
 }
@@ -2298,7 +2349,7 @@ function MainApp() {
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
-          <ScrollView style={styles.mainScroll} scrollEnabled={activeTab !== 'Inbox' && !(activeTab === 'Home' && homeForYou)} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : activeTab === 'Inbox' ? [styles.mainScrollContent, { flexGrow: 1 }] : activeTab === 'Home' && homeForYou ? [styles.mainScrollContent, { flexGrow: 1 }] : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.mainScroll} scrollEnabled={activeTab !== 'Inbox' && activeTab !== 'Discover' && !(activeTab === 'Home' && homeForYou)} contentContainerStyle={activeTab === 'Profile' ? styles.mainScrollContentProfile : activeTab === 'Inbox' ? [styles.mainScrollContent, { flexGrow: 1 }] : activeTab === 'Home' && homeForYou ? [styles.mainScrollContent, { flexGrow: 1 }] : styles.mainScrollContent} showsVerticalScrollIndicator={false}>
             <View style={[styles.contentMax, isWide && styles.contentMaxWide, activeTab === 'Inbox' && { flex: 1 }]}>{renderScreen()}</View>
           </ScrollView>
         </View>
