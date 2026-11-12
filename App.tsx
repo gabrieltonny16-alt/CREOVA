@@ -455,6 +455,23 @@ function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState('');
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [ownConnections, setOwnConnections] = useState<Awaited<ReturnType<typeof getProfileConnections>>>([]);
+  const [ownConnectionType, setOwnConnectionType] = useState<'followers' | 'following' | null>(null);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+
+  async function openOwnConnections(type: 'followers' | 'following') {
+    if (!profile) return;
+    setLoadingConnections(true);
+    setNotice('');
+    try {
+      setOwnConnections(await getProfileConnections(profile.id, type));
+      setOwnConnectionType(type);
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not load your connections.');
+    } finally {
+      setLoadingConnections(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -540,10 +557,23 @@ function ProfileScreen() {
       <Text style={styles.profileName}>{profile.display_name}</Text>
       <Text style={styles.profileHandle}>@{profile.username}</Text>
       <View style={styles.profileStats}>
-        <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></View>
+        <TouchableOpacity onPress={() => openOwnConnections('followers')} style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.followers}</Text><Text style={styles.profileStatLabel}>FOLLOWERS</Text></TouchableOpacity>
         <View style={styles.profileStatDivider} />
-        <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></View>
+        <TouchableOpacity onPress={() => openOwnConnections('following')} style={styles.profileStat}><Text style={styles.profileStatNumber}>{profileStats.following}</Text><Text style={styles.profileStatLabel}>FOLLOWING</Text></TouchableOpacity>
       </View>
+      {ownConnectionType && <View style={{ width: '100%', marginTop: 14 }}>
+        <TouchableOpacity onPress={() => setOwnConnectionType(null)} style={styles.signOutButton}>
+          <Text style={styles.signOutText}>Close {ownConnectionType}</Text>
+        </TouchableOpacity>
+        <Text style={styles.editLabel}>{ownConnectionType.toUpperCase()}</Text>
+        {ownConnections.map(person => <View key={person.id} style={styles.resultRow}>
+          <View style={styles.resultAvatar}>
+            {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={{ width: 44, height: 44, borderRadius: 22 }} /> : <Text style={styles.resultAvatarText}>{(person.display_name || person.username).slice(0, 1).toUpperCase()}</Text>}
+          </View>
+          <View style={styles.resultInfo}><Text style={styles.resultName}>{person.display_name}</Text><Text style={styles.resultHandle}>@{person.username}</Text></View>
+        </View>)}
+        {!loadingConnections && ownConnections.length === 0 && <Text style={styles.privacyHint}>No {ownConnectionType} yet.</Text>}
+      </View>}
       <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
       <Text style={styles.profilePrivacy}>{profile.is_private ? 'PRIVATE ACCOUNT' : 'PUBLIC ACCOUNT'}</Text>
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
