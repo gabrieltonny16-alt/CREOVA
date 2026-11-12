@@ -105,7 +105,7 @@ export function AuthScreen() {
     Keyboard.dismiss();
     setMessage('');
     const normalizedEmail = email.trim().toLowerCase();
-    if (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(normalizedEmail)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       showMessage('Enter your email address above first.');
       return;
     }
