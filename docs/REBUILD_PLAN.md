@@ -1,40 +1,63 @@
-# CREOVA — Clean Rebuild Plan
+# CREOVA — Current Build and Integration Plan
 
-## Decision
+## Product decision
 
-The old application implementation is being replaced by a new build. This rebuild branch starts from the documentation-only `main` branch, not from the previous application branch.
+CREOVA is being built in a strict three-stage sequence:
 
-## Preservation boundary
+1. Match the core features and functionality people expect from Instagram and TikTok.
+2. Improve their weak points and deliver a better, more modern experience.
+3. Introduce CREOVA's distinctive systems after parity and improvements are established.
 
-- Do not delete, rewrite, or force-push the existing feature branches.
-- Do not merge the old application into the new baseline.
-- Keep the existing Supabase project and its data/schema untouched during the rebuild.
-- Reuse only infrastructure after explicit technical review; old application UI, workflows, and schema are not assumed reusable.
-- Any eventual production cutover or retirement of old systems requires a separate review and explicit approval.
+Do not build the old Anchor/Iteration concept ahead of parity. Keep every feature tied to a real user need and a verifiable acceptance test.
 
-## Initial build sequence
+## Current engineering baseline
 
-1. Establish this clean branch and product documentation.
-2. Select the Android + Web client architecture and confirm toolchain versions.
-3. Establish lint, typecheck, unit, integration, and end-to-end test commands.
-4. Create the new application shell, responsive navigation, design tokens, and accessibility baseline.
-5. Create isolated development backend/project and versioned schema; do not point new migrations at production.
-6. Implement identity and profiles, then social graph and feed in small tested slices.
-7. Add stories/video, messaging, discovery, creator tools, and CREOVA execution features.
-8. Add LIVE, commerce, monetization, and advertising only after explicit approval.
+The repository contains an Expo + React Native + TypeScript application for Android and Web, Supabase-backed social/profile/messaging services, and versioned Supabase migrations.
 
-## First engineering gate
+The current integrated source includes identity and profiles, social graph, posts and feeds, Stories, short-form video playback, Explore, creator profile views, direct/group messaging, realtime inbox behavior, read receipts, and conversation message search.
 
-Before coding beyond the shell, record:
-- chosen framework and why it supports Android and Web;
-- folder/module boundaries;
-- environment variable names (never secret values);
-- development/staging/production separation;
-- database migration and rollback policy;
-- media upload/transcoding approach;
-- CI and test matrix;
-- security and privacy threat model.
+Automated CI currently validates dependency installation, Expo compatibility, TypeScript, and web export. A passing CI run is not proof of authenticated Supabase behavior, applied migrations, native Android playback, or complete end-to-end workflows.
 
-## Release rule
+## Phase 1 — Parity completion
 
-No feature is called complete without recorded passing test evidence. No production deployment, destructive migration, paid service, live payment, or external message is authorized by this rebuild plan.
+Use docs/FEATURE_PARITY_CHECKLIST.md as the source of truth. Continue feature-by-feature through:
+
+- Accounts, verification, recovery, sessions, profiles, privacy, and social graph.
+- Feed modes, publishing, media, likes, comments, reactions, reposts, sharing, saves, and notifications.
+- Stories, video capture/editing, vertical playback, sounds, creator tools, and analytics.
+- Direct/group messaging, requests, search, reactions, typing/presence, editing/deletion, calls where supported.
+- Explore, unified search, trends, recommendation controls, and user feedback.
+- Safety, reporting, blocking, moderation, accessibility, and administration.
+
+For each feature: inspect current implementation, identify gaps, implement the complete workflow, add tests, run CI, fix failures, and integrate the change. Do not leave routine completed features waiting in draft branches.
+
+## Phase 2 — Outperform existing platforms
+
+Run a documented weakness audit and improve:
+
+- User control over recommendations and feed tuning.
+- Creator discovery, fair reach, transparent insights, and sustainable value.
+- Privacy by default, understandable audience controls, and reliable enforcement.
+- Safety, anti-abuse, human appeals, and age-appropriate experiences.
+- Accessibility, localization, and inclusive interaction design.
+- Startup speed, scrolling, media loading, battery use, low-end Android performance, and poor-network resilience.
+- Search quality, content portability, interoperability, and user control over personal data.
+
+## Phase 3 — CREOVA original systems
+
+Only after parity and improvement foundations are working, finalize and build the Anchor/Iteration, execution-tree, proof-of-execution, skill graph, collaborative evolution, and related original capabilities.
+
+## Verification gates
+
+- TypeScript, Expo dependency compatibility, and Web export must pass.
+- Android and Web workflows must be exercised on supported real devices/browsers.
+- Supabase migrations must be applied only to the intended development project, then verified with test accounts and RLS/storage tests.
+- Test privacy boundaries using multiple accounts and public/private profiles.
+- Verify failure, retry, offline, loading, empty, and permission-denied states.
+- Record unverified native/runtime behavior honestly; never claim success based only on CI.
+
+## Integration and release rules
+
+Routine code changes should be integrated after required checks pass; no extra approval pause is needed for ordinary implementation or feature merges. Keep paid services, production deployment, live payments, ad spend, external messaging, and destructive data changes behind explicit authorization.
+
+No feature is called complete without evidence. Do not silently deploy or spend money.
