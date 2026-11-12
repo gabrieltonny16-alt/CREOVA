@@ -100,13 +100,15 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
-function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void }) {
+function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
   const [activeShortIndex, setActiveShortIndex] = useState(0);
   const { height: windowHeight } = useWindowDimensions();
   const shortFeedHeight = Math.max(420, windowHeight - 138);
   const shortPosts = posts.filter(post => post.media?.some(media => media.mediaType === 'video'));
+  const [creatorFollowStates, setCreatorFollowStates] = useState<Record<string, 'none' | 'requested' | 'following'>>({});
+  const [creatorFollowBusyId, setCreatorFollowBusyId] = useState('');
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [busyPost, setBusyPost] = useState('');
@@ -181,7 +183,10 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange }: {
     setLoading(true);
     setMessage('');
     try {
-      setPosts(await (feedMode === 'following' ? getHomeFeed() : getForYouFeed()));
+      const feed = await (feedMode === 'following' ? getHomeFeed() : getForYouFeed());
+      setPosts(feed);
+      const creatorIds = [...new Set(feed.map(post => post.author_id))];
+      setCreatorFollowStates(await getFollowStates(creatorIds));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load your feed.');
     } finally {
@@ -258,6 +263,27 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange }: {
     }
   }
 
+  async function toggleCreatorFollow(post: CreovaFeedPost) {
+    if (creatorFollowBusyId) return;
+    const current = creatorFollowStates[post.author_id] ?? 'none';
+    setCreatorFollowBusyId(post.author_id);
+    try {
+      if (current === 'following' || current === 'requested') {
+        await unfollowProfile(post.author_id);
+        setCreatorFollowStates(states => ({ ...states, [post.author_id]: 'none' }));
+        setMessage(current === 'requested' ? 'Follow request cancelled.' : 'You unfollowed this creator.');
+      } else {
+        const next = await followProfile(post.author_id);
+        setCreatorFollowStates(states => ({ ...states, [post.author_id]: next }));
+        setMessage(next === 'requested' ? 'Follow request sent.' : 'You are now following this creator.');
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update follow status.');
+    } finally {
+      setCreatorFollowBusyId('');
+    }
+  }
+
   async function sharePost(post: CreovaFeedPost) {
     if (postActionBusy) return;
     setPostActionBusy(post.id);
@@ -325,9 +351,24 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange }: {
                     <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, top: 0, justifyContent: 'flex-end', paddingHorizontal: 14, paddingBottom: 18 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
                         <View style={{ flex: 1, gap: 8, paddingBottom: 5 }}>
-                          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>@{post.author?.username || 'creator'}</Text>
+                          <TouchableOpacity onPress={() => onOpenCreator(post.author_id)} accessibilityRole="button" accessibilityLabel={`Open @${post.author?.username || 'creator'} profile`} style={{ alignSelf: 'flex-start' }}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>@{post.author?.username || 'creator'} ›</Text>
+                          </TouchableOpacity>
                           {!!post.caption && <Text numberOfLines={3} style={{ color: '#FFFFFF', fontSize: 13, lineHeight: 19 }}>{post.caption}</Text>}
-                          <Text style={{ color: '#D6DCE8', fontSize: 10 }}>CREOVA · For You</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                            <Text style={{ color: '#D6DCE8', fontSize: 10 }}>CREOVA · For You</Text>
+                            <TouchableOpacity
+                              disabled={creatorFollowBusyId === post.author_id}
+                              onPress={() => void toggleCreatorFollow(post)}
+                              accessibilityRole="button"
+                              accessibilityLabel={creatorFollowStates[post.author_id] === 'following' ? 'Unfollow creator' : creatorFollowStates[post.author_id] === 'requested' ? 'Cancel follow request' : 'Follow creator'}
+                              style={{ borderWidth: 1, borderColor: '#FFFFFF99', borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: '#00000066' }}
+                            >
+                              <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>
+                                {creatorFollowBusyId === post.author_id ? '…' : creatorFollowStates[post.author_id] === 'following' ? 'Following' : creatorFollowStates[post.author_id] === 'requested' ? 'Requested' : '+ Follow'}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                         <View style={{ alignItems: 'center', gap: 17, paddingBottom: 3 }}>
                           <TouchableOpacity disabled={busyPost === post.id || !!postActionBusy} onPress={() => likePost(post.id)} style={{ alignItems: 'center', gap: 3 }}>
@@ -1653,7 +1694,7 @@ function StoriesSection() {
   );
 }
 
-function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: string) => void; onMessagePerson: (personId: string) => void }) {
+function ProfileScreen({ onOpenPost, onMessagePerson, openPersonId, onOpenPersonHandled }: { onOpenPost: (postId: string) => void; onMessagePerson: (personId: string) => void; openPersonId: string | null; onOpenPersonHandled: () => void }) {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [counts, setCounts] = useState({ posts: 0, followers: 0, following: 0 });
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
@@ -1729,6 +1770,11 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not open this profile.'); }
     finally { setPersonLoading(false); }
   }
+
+  useEffect(() => {
+    if (!openPersonId) return;
+    void openPersonProfile(openPersonId).finally(onOpenPersonHandled);
+  }, [openPersonId]);
 
   async function toggleSelectedPersonFollow() {
     if (!selectedPerson || personActionBusy) return;
@@ -2118,6 +2164,7 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [homeForYou, setHomeForYou] = useState(true);
+  const [selectedCreatorId, setSelectedCreatorId] = useState<string | null>(null);
   const [sharedPostId, setSharedPostId] = useState<string | null>(null);
   const [messageTargetId, setMessageTargetId] = useState<string | null>(null);
   const { width } = useWindowDimensions();
@@ -2141,8 +2188,8 @@ function MainApp() {
       case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
-      case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} />;
+      case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} />;
     }
   };
 
