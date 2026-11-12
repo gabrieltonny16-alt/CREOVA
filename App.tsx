@@ -12,7 +12,7 @@ import type { CreovaFeedPost, CreovaPostComment, CommentReactionType, CommentRea
 import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToStory, getMyStoryViewers, deleteStory } from './src/features/stories/storyService';
 import type { CreovaStory } from './src/features/stories/storyService';
 import {
-  getMyConversations, getConversationMessages, createConversation, sendMessage,
+  getMyConversations, getConversationMessages, searchConversationMessages, getConversationMessagesAround, createConversation, sendMessage,
   markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
 } from './src/features/messaging/messageService';
@@ -939,6 +939,10 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [activeConversation, setActiveConversation] = useState<CreovaConversation | null>(null);
   const [threadMessages, setThreadMessages] = useState<CreovaMessage[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState('');
+  const [messageSearchResults, setMessageSearchResults] = useState<CreovaMessage[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('CONNECTING');
   const [draft, setDraft] = useState('');
   const [draftClientId, setDraftClientId] = useState<string | null>(null);
@@ -1120,6 +1124,37 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     setSelectedPeople(items => items.some(item => item.id === person.id)
       ? items.filter(item => item.id !== person.id)
       : [...items, person]);
+  }
+
+
+  async function runMessageSearch() {
+    if (!activeConversation || messageSearchQuery.trim().length < 2 || messageSearchLoading) return;
+    setMessageSearchLoading(true);
+    setMessageSearchResults([]);
+    try {
+      const results = await searchConversationMessages(activeConversation.id, messageSearchQuery);
+      setMessageSearchResults(results);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not search this conversation.');
+    } finally {
+      setMessageSearchLoading(false);
+    }
+  }
+
+  async function openSearchedMessage(item: CreovaMessage) {
+    if (!activeConversation) return;
+    setThreadLoading(true);
+    try {
+      const context = await getConversationMessagesAround(activeConversation.id, item.id);
+      setThreadMessages(context);
+      setMessageSearchOpen(false);
+      setMessageSearchQuery('');
+      setMessageSearchResults([]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not open this message.');
+    } finally {
+      setThreadLoading(false);
+    }
   }
 
   async function chooseChatAttachment() {
@@ -1499,7 +1534,57 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <Text style={styles.resultName}>{activeConversation ? conversationTitle(activeConversation) : 'Conversation'}</Text>
             <Text style={styles.resultHandle}>{activeConversation ? conversationSubtitle(activeConversation) : ''} · {connectionStatus === 'SUBSCRIBED' ? 'Live' : connectionStatus === 'CHANNEL_ERROR' || connectionStatus === 'TIMED_OUT' ? 'Reconnecting' : 'Connecting'}</Text>
           </View>
+          <TouchableOpacity
+            onPress={() => {
+              setMessageSearchOpen(value => !value);
+              setMessageSearchQuery('');
+              setMessageSearchResults([]);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={messageSearchOpen ? 'Close message search' : 'Search messages in this conversation'}
+            style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surfaceRaised, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ color: '#A7C6FF', fontSize: 23 }}>⌕</Text>
+          </TouchableOpacity>
         </View>
+        {messageSearchOpen && <View style={{ paddingHorizontal: 13, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+            <TextInput
+              value={messageSearchQuery}
+              onChangeText={setMessageSearchQuery}
+              onSubmitEditing={() => void runMessageSearch()}
+              returnKeyType="search"
+              autoCapitalize="sentences"
+              placeholder="Search words or phrases…"
+              placeholderTextColor="#71819C"
+              style={[styles.searchInput, { minHeight: 42, paddingVertical: 8 }]}
+            />
+            <TouchableOpacity
+              disabled={messageSearchQuery.trim().length < 2 || messageSearchLoading}
+              onPress={() => void runMessageSearch()}
+              style={[styles.searchButton, { minHeight: 42, opacity: messageSearchQuery.trim().length < 2 || messageSearchLoading ? 0.5 : 1 }]}
+            >
+              <Text style={styles.searchButtonText}>{messageSearchLoading ? '…' : 'Search'}</Text>
+            </TouchableOpacity>
+          </View>
+          {messageSearchQuery.trim().length < 2 && <Text style={styles.mutedSmall}>Enter at least 2 characters to search this conversation.</Text>}
+          {messageSearchLoading && <Text style={styles.notice}>Searching messages…</Text>}
+          {!messageSearchLoading && messageSearchQuery.trim().length >= 2 && messageSearchResults.length === 0 && <Text style={styles.notice}>No matching messages yet. Run the search to check again.</Text>}
+          {messageSearchResults.length > 0 && <ScrollView style={{ maxHeight: 190 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 6 }}>
+            {messageSearchResults.map(result => (
+              <TouchableOpacity
+                key={result.id}
+                onPress={() => void openSearchedMessage(result)}
+                style={{ padding: 10, borderRadius: 11, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, gap: 4 }}
+              >
+                <Text style={{ color: '#A7C6FF', fontSize: 10, fontWeight: '800' }}>
+                  {result.sender?.display_name || result.sender?.username || 'CREOVA member'} · {new Date(result.created_at).toLocaleString()}
+                </Text>
+                <Text numberOfLines={2} style={{ color: COLORS.text, fontSize: 12 }}>{result.body}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>}
+        </View>}
         {activeConversation?.membershipStatus === 'pending' && <View style={{ backgroundColor: COLORS.surface, padding: 14, gap: 8 }}>
           <Text style={styles.resultName}>Message request</Text>
           <Text style={styles.notice}>Accept this request to continue the conversation, or decline it to remove it from your requests.</Text>
