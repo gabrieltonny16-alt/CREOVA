@@ -56,7 +56,6 @@ const COLORS = {
 
 const TABS: { key: Tab; symbol: string; label: string }[] = [
   { key: 'Home', symbol: '⌂', label: 'Home' },
-  { key: 'Discover', symbol: '⌕', label: 'Explore' },
   { key: 'Create', symbol: '+', label: 'Create' },
   { key: 'Inbox', symbol: '✉', label: 'Inbox' },
   { key: 'Profile', symbol: '◉', label: 'Profile' },
@@ -2282,6 +2281,24 @@ function MainApp() {
     <SafeAreaView edges={['top', 'left', 'right']} style={styles.safeArea}>
       <StatusBar barStyle="light-content" />
       <View style={styles.app}>
+        <View style={[styles.topBar, isWide && styles.topBarWide]}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandMark}><Text style={styles.brandMarkText}>C</Text></View>
+            <View>
+              <Text style={styles.brandName}>CREOVA</Text>
+              <Text style={styles.brandTagline}>CREATE. CONNECT. EVOLVE.</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            onPress={() => setActiveTab('Discover')}
+            accessibilityRole="button"
+            accessibilityLabel="Search and explore"
+            accessibilityState={{ selected: activeTab === 'Discover' }}
+            style={[styles.topBarAction, activeTab === 'Discover' && { backgroundColor: COLORS.accentSoft }]}
+          >
+            <Text style={styles.topBarActionText}>⌕</Text>
+          </TouchableOpacity>
+        </View>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
             {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
