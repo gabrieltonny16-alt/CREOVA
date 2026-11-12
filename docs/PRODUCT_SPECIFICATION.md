@@ -1,17 +1,29 @@
 # CREOVA — Product Specification
 
-**Status:** Approved direction; implementation begins from a clean application baseline.  
-**Platforms:** Android and Web.  
-**Product:** A complete social networking and creator platform with CREOVA's own execution and evolution system.
+**Status:** Current approved product direction.  
+**Platforms:** Android and Web, with architecture that can expand to iOS and other clients.  
+**Product:** A next-generation social platform that first delivers expected Instagram/TikTok functionality, then improves on their weaknesses, then introduces CREOVA's original ecosystem.
 
 ## Vision
 
-CREOVA brings together three connected experiences: a full social network, a short-form entertainment and creator platform, and an original creation/execution network. Build original code, product design, algorithms, and visual identity. Use common interaction patterns as inspiration; do not copy proprietary source code, trademarks, or protected assets.
+CREOVA should outshine established social platforms across the important dimensions of the experience: creation, publishing, discovery, communication, creator value, privacy, safety, accessibility, performance, reliability, and user control.
+
+The age of existing platforms is not a reason to copy their implementation. CREOVA should use modern architecture and original code to deliver familiar capabilities better. Do not copy proprietary source code, trademarks, protected assets, or trade dress.
+
+## Product delivery rule
+
+The sequence is mandatory:
+
+1. **Parity:** implement the core features and functionality users already expect from Instagram and TikTok.
+2. **Improvement:** identify and fix weaknesses in those experiences, including opaque recommendations, weak user controls, creator-value gaps, privacy/safety problems, accessibility barriers, performance issues, and unreliable workflows.
+3. **CREOVA differentiation:** introduce original CREOVA systems after parity and improvement foundations are established.
+
+Do not prioritize distinctive features ahead of the parity work. Do not add features merely to increase feature count; each feature must solve a real user problem or create a measurable advantage.
 
 ## Product requirements
 
 ### 1. Accounts and profiles
-Registration and login; email/phone verification where configured; password recovery; sessions and optional MFA; public/private accounts; profile editing; avatars, bios, links; personal/creator/business modes; account switching; follow requests; verification review; deactivation and deletion.
+Registration and login; email/phone verification where configured; password recovery; sessions and optional MFA; public/private accounts; profile editing; avatars, bios, links; personal/creator/business modes; account switching; verification review; deactivation and deletion.
 
 ### 2. Social graph
 Follow/unfollow; follower/following lists; mutual connections; remove follower; block, mute, restrict; close-friends and audience lists; privacy controls.
@@ -32,7 +44,7 @@ Creator eligibility; stream setup and preview; playback; real-time chat; co-host
 One-to-one and group chats; text, media, files, voice notes, reactions, replies, forwarding; message requests; group roles; read receipts; typing and presence controls; editing/deletion; spam controls; reporting; audio/video calls where supported. End-to-end encryption must be separately designed and reviewed before being claimed.
 
 ### 8. Search and discovery
-Search people, posts, videos, hashtags, topics, sounds, and Anchors; suggestions and filters; Explore; trends; creator discovery; recommendation controls; hide/not-interested; reset/retrain preferences; diversity, safety, freshness, and privacy-aware ranking.
+Search people, posts, videos, messages, hashtags, topics, sounds, and creators; suggestions and filters; Explore; trends; creator discovery; recommendation controls; hide/not-interested; reset/retrain preferences; diversity, safety, freshness, and privacy-aware ranking.
 
 ### 9. Notifications
 In-app and push notifications; follows, requests, likes, comments, mentions, messages, LIVE events, creator updates, safety/security alerts; per-category preferences; deduplication; batching; quiet hours; deep links.
@@ -40,7 +52,9 @@ In-app and push notifications; follows, requests, likes, comments, mentions, mes
 ### 10. Creator and business tools
 Creator Studio; drafts and scheduling; performance analytics; audience insights; collaboration requests; sponsorship disclosures; business profiles; catalogues; product tagging; campaigns; ad reporting; affiliate and commerce capabilities. Billing, ads, commerce, subscriptions, and payouts remain gated until separately approved.
 
-### 11. CREOVA original system
+### 11. CREOVA original ecosystem — Phase 3 only
+This is the distinctive CREOVA layer, not a substitute for the parity roadmap. Its final scope should be developed after Phases 1 and 2 are established.
+
 - **Anchor:** original idea, objective, challenge, skill, or creation.
 - **Iteration:** attributable contribution that develops an Anchor or another Iteration.
 - **Execution Tree:** connected parent/child history and provenance.
@@ -65,19 +79,21 @@ Reports; blocking and privacy controls; automated triage with human review; mode
 - CDN/adaptive video delivery as scale and budget require.
 - Observability, backups, restore tests, rate limits, secrets management, and staged deployment.
 
-The existing Supabase project may be retained as infrastructure only after security/configuration review. Do not reuse old application tables or apply destructive production migrations during this clean rebuild. Design a new versioned schema and isolated development environment first.
+Use the isolated CREOVA-DEV environment for development migrations and runtime verification after confirming its project identity and credentials. Keep migrations versioned and review security/RLS/storage policies. Never apply development migrations to production by assumption.
 
 ## Delivery phases
 
-0. Clean baseline, repository setup, environment strategy, CI, architecture and threat model.
-1. Design system, navigation, authentication integration, profiles, privacy and social graph.
-2. Posts, feed, likes, comments, sharing, saves, search and notifications.
-3. Stories, media upload pipeline, vertical video playback and creator tools.
-4. Messaging, groups, communities and real-time services.
-5. Explore, search and recommendation systems.
-6. Anchor/Iteration engine, execution tree, proof, collaboration and skill graph.
-7. LIVE, business, ads, commerce and monetization behind approval gates.
-8. Moderation, security, accessibility, localization, performance and launch readiness.
+### Phase 1 — Instagram/TikTok parity
+Complete the core account, profile, social graph, feed, publishing, media, Stories, Explore/search, messaging, notifications, creator and safety capabilities. Track each feature against the parity checklist and verify it rather than relying on screen presence.
+
+### Phase 2 — Fix platform weaknesses
+Improve recommendation transparency and controls; creator fairness and value; user privacy and safety; moderation and appeals; accessibility and inclusion; low-end-device performance; network resilience; media quality; search relevance; interoperability and data portability.
+
+### Phase 3 — CREOVA differentiation
+Build the original Anchor/Iteration, execution-tree, proof-of-execution, skill-discovery, and collaborative-evolution systems after the parity and improvement foundations are working.
+
+### Phase 4 — Scale and commercial capabilities
+LIVE, ads, commerce, subscriptions, gifts, and payouts only after reliability, moderation, legal/compliance, fraud, provider, and owner-authorization gates are satisfied.
 
 ## Definition of done
 
