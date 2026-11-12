@@ -56,7 +56,6 @@ const COLORS = {
 
 const TABS: { key: Tab; symbol: string; label: string }[] = [
   { key: 'Home', symbol: '⌂', label: 'Home' },
-  { key: 'Discover', symbol: '⌕', label: 'Explore' },
   { key: 'Create', symbol: '+', label: 'Create' },
   { key: 'Inbox', symbol: '✉', label: 'Inbox' },
   { key: 'Profile', symbol: '◉', label: 'Profile' },
@@ -130,7 +129,7 @@ function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
   return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="contain" nativeControls={false} />;
 }
 
-function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void }) {
+function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onOpenCreator, onOpenExplore }: { sharedPostId: string | null; onSharedPostHandled: () => void; onForYouModeChange: (active: boolean) => void; onOpenCreator: (profileId: string) => void; onOpenExplore: () => void }) {
   const [posts, setPosts] = useState<CreovaFeedPost[]>([]);
   const [feedMode, setFeedMode] = useState<'following' | 'for-you'>('for-you');
   const [refreshing, setRefreshing] = useState(false);
@@ -345,6 +344,12 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
 
   return (
     <View style={styles.screenContent}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2, paddingVertical: 3 }}>
+        <Text style={{ color: COLORS.text, fontSize: 17, fontWeight: '900', letterSpacing: 2.2 }}>CREOVA</Text>
+        <TouchableOpacity onPress={onOpenExplore} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Search and explore CREOVA">
+          <Text style={styles.topBarActionText}>⌕</Text>
+        </TouchableOpacity>
+      </View>
       <View style={[styles.feedHeading, { paddingVertical: 5, marginBottom: 5, gap: 8 }]}>
         {(['following', 'for-you'] as const).map(mode => {
           const active = feedMode === mode;
@@ -581,7 +586,7 @@ function HomeScreen({ sharedPostId, onSharedPostHandled, onForYouModeChange, onO
   );
 }
 
-function DiscoverScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+function DiscoverScreen({ onOpenPost, onBack }: { onOpenPost: (postId: string) => void; onBack: () => void }) {
   const [mode, setMode] = useState<'posts' | 'people'>('posts');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<Awaited<ReturnType<typeof searchProfiles>>[number] & { followState: 'none' | 'requested' | 'following' }>>([]);
@@ -657,6 +662,10 @@ function DiscoverScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }
     || (post.author?.display_name ?? '').toLowerCase().includes(term));
 
   return <View style={styles.screenContent}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+      <TouchableOpacity onPress={onBack} accessibilityRole="button" accessibilityLabel="Back to Home" style={styles.topBarAction}><Text style={styles.topBarActionText}>‹</Text></TouchableOpacity>
+      <Text style={{ color: COLORS.text, fontSize: 22, fontWeight: '800' }}>Explore</Text>
+    </View>
     <View style={styles.searchRow}>
       <TextInput value={query} onChangeText={setQuery} placeholder={mode === 'posts' ? 'Search posts and creators' : 'Search people on CREOVA'} placeholderTextColor="#71819C" style={styles.searchInput} autoCapitalize="none" autoCorrect={false} returnKeyType="search" />
     </View>
@@ -2270,11 +2279,11 @@ function MainApp() {
 
   const renderScreen = () => {
     switch (activeTab) {
-      case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} />;
+      case 'Discover': return <DiscoverScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onBack={() => setActiveTab('Home')} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} messageTargetId={messageTargetId} onMessageTargetHandled={() => setMessageTargetId(null)} />;
       case 'Profile': return <ProfileScreen onOpenPost={(postId) => { setSharedPostId(postId); setActiveTab('Home'); }} onMessagePerson={(personId) => { setMessageTargetId(personId); setActiveTab('Inbox'); }} openPersonId={selectedCreatorId} onOpenPersonHandled={() => setSelectedCreatorId(null)} />;
-      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} />;
+      default: return <HomeScreen sharedPostId={sharedPostId} onSharedPostHandled={() => setSharedPostId(null)} onForYouModeChange={setHomeForYou} onOpenCreator={profileId => { setSelectedCreatorId(profileId); setActiveTab('Profile'); }} onOpenExplore={() => setActiveTab('Discover')} />;
     }
   };
 
