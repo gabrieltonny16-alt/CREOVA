@@ -1006,6 +1006,10 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
 
   async function openConversation(item: CreovaConversation) {
     setActiveConversation(item);
+    setMessageSearchOpen(false);
+    setMessageSearchQuery('');
+    setMessageSearchResults([]);
+    setMessageSearchHasRun(false);
     setThreadMessages([]);
     setDraft('');
     setDraftClientId(null);
@@ -1557,6 +1561,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
             <TextInput
               value={messageSearchQuery}
               onChangeText={value => { setMessageSearchQuery(value); setMessageSearchResults([]); setMessageSearchHasRun(false); }}
+              editable={!messageSearchLoading}
               onSubmitEditing={() => void runMessageSearch()}
               returnKeyType="search"
               autoCapitalize="sentences"
