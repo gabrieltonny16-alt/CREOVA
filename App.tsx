@@ -957,6 +957,9 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       const [userId, items] = await Promise.all([getCurrentMessagingUserId(), getMyConversations()]);
       setCurrentUserId(userId);
       setConversations(items);
+      setActiveConversation(current => current
+        ? items.find(item => item.id === current.id) ?? current
+        : null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load your messages.');
     } finally {
@@ -1517,7 +1520,20 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
               {!!item.attachmentUrl && item.attachment_type === 'video' && <MessageVideo uri={item.attachmentUrl} />}
               {!!item.attachmentUrl && item.attachment_type === 'audio' && <MessageAudio uri={item.attachmentUrl} />}
               {!!item.attachment_path && !item.attachmentUrl && <Text style={{ color: COLORS.muted, fontSize: 11 }}>Attachment unavailable. Refresh to try again.</Text>}
-              <Text style={{ color: '#A8B6CC', fontSize: 9, textAlign: 'right' }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 7 }}>
+                <Text style={{ color: '#A8B6CC', fontSize: 9 }}>{new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                {mine && (() => {
+                  const readers = (activeConversation?.participants ?? []).filter(person =>
+                    person.user_id !== currentUserId &&
+                    person.membership_status === 'accepted' &&
+                    person.last_read_at &&
+                    new Date(person.last_read_at).getTime() >= new Date(item.created_at).getTime()
+                  );
+                  if (!readers.length) return null;
+                  const label = activeConversation?.kind === 'group' ? `Seen by ${readers.length}` : 'Seen';
+                  return <Text style={{ color: '#83B8FF', fontSize: 9, fontWeight: '800' }}>{label}</Text>;
+                })()}
+              </View>
             </View>;
           })}
         </ScrollView>
