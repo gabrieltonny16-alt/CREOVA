@@ -3,8 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioPlayer, useAudioRecorder } from 'expo-audio';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileCounts, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
-import type { CreovaProfile } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileCounts, getMyFollowList, searchProfiles, getFollowStates, followProfile, unfollowProfile, getIncomingFollowRequests, respondToFollowRequest, updateMyProfile, uploadMyAvatar, removeMyAvatar } from './src/features/profile/profileService';
+import type { CreovaProfile, FollowListEntry } from './src/features/profile/profileService';
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from './src/features/notifications/notificationService';
 import type { CreovaNotification } from './src/features/notifications/notificationService';
 import { createPost, createPostWithMedia, getHomeFeed, getForYouFeed, getMyPosts, getPostById, getSavedPosts, togglePostLike, togglePostRepost, togglePostSave, getPostComments, createPostComment, getCommentReactionSummaries, setCommentReaction, setPostPinned } from './src/features/posts/postService';
@@ -1574,6 +1574,10 @@ function ProfileScreen() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [followListType, setFollowListType] = useState<'followers' | 'following' | null>(null);
+  const [followList, setFollowList] = useState<FollowListEntry[]>([]);
+  const [followListLoading, setFollowListLoading] = useState(false);
+  const [followListError, setFollowListError] = useState('');
 
   async function loadProfile() {
     setError('');
@@ -1593,6 +1597,16 @@ function ProfileScreen() {
   useEffect(() => {
     loadProfile();
   }, []);
+
+  async function openFollowList(kind: 'followers' | 'following') {
+    setFollowListType(kind);
+    setFollowList([]);
+    setFollowListError('');
+    setFollowListLoading(true);
+    try { setFollowList(await getMyFollowList(kind)); }
+    catch (e) { setFollowListError(e instanceof Error ? e.message : 'Could not load this list.'); }
+    finally { setFollowListLoading(false); }
+  }
 
   async function loadSavedPosts() {
     setSavedLoading(true);
@@ -1761,8 +1775,12 @@ function ProfileScreen() {
         <Text style={styles.profileCopy}>{profile.bio || 'Add a bio to tell your story.'}</Text>
         <View style={styles.profileStats}>
           <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.posts}</Text><Text style={styles.profileStatLabel}>Posts</Text></View>
-          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>Followers</Text></View>
-          <View style={styles.profileStat}><Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>Following</Text></View>
+          <TouchableOpacity onPress={() => void openFollowList('followers')} style={styles.profileStat} accessibilityRole="button" accessibilityLabel={`${counts.followers} followers. Open followers list.`}>
+            <Text style={styles.profileStatNumber}>{counts.followers}</Text><Text style={styles.profileStatLabel}>Followers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => void openFollowList('following')} style={styles.profileStat} accessibilityRole="button" accessibilityLabel={`${counts.following} following. Open following list.`}>
+            <Text style={styles.profileStatNumber}>{counts.following}</Text><Text style={styles.profileStatLabel}>Following</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.profilePrimaryActions}>
           <TouchableOpacity onPress={() => { setNotice(''); setEditing(value => !value); }} style={styles.profilePrimaryButton}>
@@ -1811,6 +1829,37 @@ function ProfileScreen() {
         </TouchableOpacity>)}
       </View> : !savedLoading && <EmptyState title={showSavedPosts ? 'No saved posts yet' : filter === 'GRID' ? 'Your work starts here' : `No ${filter.toLowerCase()} yet`} description={showSavedPosts ? 'Save a post from your feed and it will appear here. Only you can see this collection.' : 'Publish a post, Anchor or Iteration to build your visible creator journey.'} />}
     </> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and refresh your profile.' : 'Your profile and creator activity are being loaded from CREOVA.'} />}
+    <Modal visible={!!followListType} transparent animationType="slide" onRequestClose={() => setFollowListType(null)}>
+      <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.62)' }}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setFollowListType(null)} />
+        <View style={{ maxHeight: '78%', minHeight: '48%', backgroundColor: COLORS.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, borderWidth: 1, borderColor: COLORS.border, padding: 18, gap: 13 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ gap: 3 }}>
+              <Text style={styles.profileMenuTitle}>{followListType === 'followers' ? 'Followers' : 'Following'}</Text>
+              <Text style={styles.mutedSmall}>{followList.length} ACCOUNTS</Text>
+            </View>
+            <TouchableOpacity onPress={() => setFollowListType(null)} accessibilityRole="button" accessibilityLabel="Close follow list"><Text style={styles.profileMenuClose}>×</Text></TouchableOpacity>
+          </View>
+          {followListLoading && <EmptyState title="Loading accounts" description="Fetching this list from CREOVA." />}
+          {!!followListError && <Text style={styles.notice}>{followListError}</Text>}
+          {!followListLoading && !followListError && followList.length === 0 && <EmptyState
+            title={followListType === 'followers' ? 'No followers yet' : 'Not following anyone yet'}
+            description={followListType === 'followers' ? 'When people follow you, they will appear here.' : 'Accounts you follow will appear here.'}
+          />}
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 9, paddingBottom: 10 }}>
+            {followList.map(person => <View key={person.id} style={styles.resultRow}>
+              <View style={styles.resultAvatar}>
+                {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={styles.requestAvatarImage} /> : <Text style={styles.resultAvatarText}>{(person.display_name || person.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+              </View>
+              <View style={styles.resultInfo}>
+                <Text style={styles.resultName}>{person.display_name || person.username}</Text>
+                <Text style={styles.resultHandle}>@{person.username}</Text>
+              </View>
+            </View>)}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
     <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
       <View style={styles.profileMenuOverlay}>
         <TouchableOpacity style={styles.profileMenuScrim} activeOpacity={1} onPress={() => setMenuOpen(false)} />
