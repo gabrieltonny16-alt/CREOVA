@@ -1640,8 +1640,10 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
   async function openPersonProfile(personId: string) {
     setFollowListType(null); setSelectedPerson(null); setPersonError(''); setPersonLoading(true);
     try {
-      const [person, stats, states, creatorPosts] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId]), getCreatorPosts(personId)]);
-      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(states[personId] ?? 'none'); setSelectedPersonPosts(creatorPosts);
+      const [person, stats, states] = await Promise.all([getPublicProfile(personId), getPublicProfileCounts(personId), getFollowStates([personId])]);
+      const followState = states[personId] ?? 'none';
+      const creatorPosts = !person.is_private || followState === 'following' ? await getCreatorPosts(personId) : [];
+      setSelectedPerson(person); setSelectedPersonCounts(stats); setSelectedPersonFollowState(followState); setSelectedPersonPosts(creatorPosts);
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not open this profile.'); }
     finally { setPersonLoading(false); }
   }
@@ -1654,10 +1656,14 @@ function ProfileScreen({ onOpenPost, onMessagePerson }: { onOpenPost: (postId: s
         await unfollowProfile(selectedPerson.id);
         setSelectedPersonCounts(v => ({ ...v, followers: Math.max(0, v.followers - (selectedPersonFollowState === 'following' ? 1 : 0)) }));
         setSelectedPersonFollowState('none');
+        if (selectedPerson.is_private) setSelectedPersonPosts([]);
       } else {
         const next = await followProfile(selectedPerson.id);
         setSelectedPersonFollowState(next);
-        if (next === 'following') setSelectedPersonCounts(v => ({ ...v, followers: v.followers + 1 }));
+        if (next === 'following') {
+          setSelectedPersonCounts(v => ({ ...v, followers: v.followers + 1 }));
+          if (selectedPerson.is_private) setSelectedPersonPosts(await getCreatorPosts(selectedPerson.id));
+        }
       }
     } catch (e) { setPersonError(e instanceof Error ? e.message : 'Could not update follow status.'); }
     finally { setPersonActionBusy(false); }
