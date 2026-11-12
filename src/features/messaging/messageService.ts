@@ -36,6 +36,8 @@ export type CreovaMessage = {
   client_message_id: string;
   body: string | null;
   created_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
   attachment_type: 'image' | 'video' | 'audio' | null;
   attachment_path: string | null;
   attachment_name: string | null;
@@ -97,7 +99,7 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
       .select('conversation_id, user_id, role, membership_status, last_read_at, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids),
     client.from('conversation_messages')
-      .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+      .select('id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids)
       .order('created_at', { ascending: false })
       .limit(500),
@@ -130,7 +132,8 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
     const query = client.from('conversation_messages')
       .select('id', { count: 'exact', head: true })
       .eq('conversation_id', membership.conversation_id)
-      .neq('sender_id', auth.user.id);
+      .neq('sender_id', auth.user.id)
+      .is('deleted_at', null);
     const result = membership.last_read_at
       ? await query.gt('created_at', membership.last_read_at)
       : await query;
@@ -231,13 +234,13 @@ export async function getConversationMessages(conversationId: string): Promise<C
   const client = requireSupabase();
   const { data, error } = await client
     .from('conversation_messages')
-    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
     .limit(500);
   if (error) throw error;
   const rows = (data ?? []) as any[];
-  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const paths = rows.flatMap(row => row.attachment_path && !row.deleted_at ? [row.attachment_path] : []);
   const signedByPath = new Map<string, string>();
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage.from('creova-chat-media').createSignedUrls(paths, 3600);
@@ -262,9 +265,10 @@ export async function searchConversationMessages(conversationId: string, query: 
   const escaped = term.replace(/[\\%_]/g, '\\$&');
   const { data, error } = await requireSupabase()
     .from('conversation_messages')
-    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
     .eq('conversation_id', conversationId)
     .not('body', 'is', null)
+    .is('deleted_at', null)
     .ilike('body', `%${escaped}%`)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -281,12 +285,13 @@ export async function getConversationMessagesAround(
   messageId: string,
 ): Promise<CreovaMessage[]> {
   const client = requireSupabase();
-  const columns = 'id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)';
+  const columns = 'id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)';
   const { data: target, error: targetError } = await client
     .from('conversation_messages')
     .select(columns)
     .eq('conversation_id', conversationId)
     .eq('id', messageId)
+    .is('deleted_at', null)
     .single();
   if (targetError) throw targetError;
 
@@ -295,12 +300,13 @@ export async function getConversationMessagesAround(
     .select(columns)
     .eq('conversation_id', conversationId)
     .lt('created_at', target.created_at)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(20);
   if (beforeError) throw beforeError;
 
   const rows = [...(before ?? []).reverse(), target] as any[];
-  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const paths = rows.flatMap(row => row.attachment_path && !row.deleted_at ? [row.attachment_path] : []);
   const signedByPath = new Map<string, string>();
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage
@@ -396,11 +402,11 @@ export async function sendMessage(
     attachment_duration_ms: attachment?.durationMs ?? null,
   };
   const { data, error } = await client.from('conversation_messages').insert(payload)
-    .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)').single();
+    .select('id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)').single();
   if (error) {
     if (error.code === '23505') {
       const { data: existing, error: existingError } = await client.from('conversation_messages')
-        .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
+        .select('id, conversation_id, sender_id, client_message_id, body, created_at, edited_at, deleted_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
         .eq('sender_id', auth.user.id)
         .eq('client_message_id', clientMessageId)
         .maybeSingle();
@@ -429,6 +435,33 @@ export async function sendMessage(
     attachmentUrl: signed?.data?.signedUrl ?? null,
     sender: Array.isArray(data.sender) ? data.sender[0] : data.sender,
   } as CreovaMessage;
+}
+
+export async function editConversationMessage(messageId: string, body: string): Promise<void> {
+  const trimmed = body.trim();
+  if (!trimmed || trimmed.length > 5000) throw new Error('Messages must contain 1 to 5,000 characters.');
+  const { error } = await requireSupabase().rpc('creova_edit_conversation_message', {
+    p_message_id: messageId,
+    p_body: trimmed,
+  });
+  if (error) throw error;
+}
+
+export async function deleteConversationMessage(messageId: string): Promise<boolean> {
+  const client = requireSupabase();
+  const { data: attachmentPath, error } = await client.rpc('creova_delete_conversation_message', {
+    p_message_id: messageId,
+  });
+  if (error) throw error;
+  if (typeof attachmentPath !== 'string' || !attachmentPath) return true;
+  // The database has already hidden the message and media from every member.
+  // Storage removal is best-effort; the storage SELECT policy blocks deleted media.
+  try {
+    const { error: cleanupError } = await client.storage.from('creova-chat-media').remove([attachmentPath]);
+    return !cleanupError;
+  } catch {
+    return false;
+  }
 }
 
 export async function markConversationRead(conversationId: string): Promise<void> {
@@ -603,6 +636,8 @@ export function subscribeToConversationMessages(
         client_message_id: row.client_message_id,
         body: row.body,
         created_at: row.created_at,
+        edited_at: row.edited_at ?? null,
+        deleted_at: row.deleted_at ?? null,
         attachment_type: row.attachment_type ?? null,
         attachment_path: row.attachment_path ?? null,
         attachment_name: row.attachment_name ?? null,
@@ -613,6 +648,12 @@ export function subscribeToConversationMessages(
         sender: null,
       });
     })
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'conversation_messages',
+      filter: `conversation_id=eq.${conversationId}`,
+    }, () => onReactionChange?.())
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
