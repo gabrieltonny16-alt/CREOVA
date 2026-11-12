@@ -239,7 +239,7 @@ export async function getConversationMessages(conversationId: string): Promise<C
     .limit(500);
   if (error) throw error;
   const rows = (data ?? []) as any[];
-  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const paths = rows.flatMap(row => row.attachment_path && !row.deleted_at ? [row.attachment_path] : []);
   const signedByPath = new Map<string, string>();
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage.from('creova-chat-media').createSignedUrls(paths, 3600);
@@ -305,7 +305,7 @@ export async function getConversationMessagesAround(
   if (beforeError) throw beforeError;
 
   const rows = [...(before ?? []).reverse(), target] as any[];
-  const paths = rows.flatMap(row => row.attachment_path ? [row.attachment_path] : []);
+  const paths = rows.flatMap(row => row.attachment_path && !row.deleted_at ? [row.attachment_path] : []);
   const signedByPath = new Map<string, string>();
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage
@@ -631,6 +631,8 @@ export function subscribeToConversationMessages(
         client_message_id: row.client_message_id,
         body: row.body,
         created_at: row.created_at,
+        edited_at: row.edited_at ?? null,
+        deleted_at: row.deleted_at ?? null,
         attachment_type: row.attachment_type ?? null,
         attachment_path: row.attachment_path ?? null,
         attachment_name: row.attachment_name ?? null,
