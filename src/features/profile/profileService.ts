@@ -183,6 +183,29 @@ export async function getMyProfileCounts(): Promise<CreovaProfileCounts> {
 }
 
 
+export type FollowListEntry = Pick<CreovaProfile, 'id' | 'username' | 'display_name' | 'avatar_url'> & { followedAt: string };
+
+export async function getMyFollowList(kind: 'followers' | 'following'): Promise<FollowListEntry[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('You must be signed in.');
+
+  const isFollowers = kind === 'followers';
+  const query = isFollowers
+    ? client.from('user_follows')
+        .select('created_at, profile:profiles!user_follows_follower_id_fkey(id, username, display_name, avatar_url)')
+        .eq('following_id', auth.user.id)
+    : client.from('user_follows')
+        .select('created_at, profile:profiles!user_follows_following_id_fkey(id, username, display_name, avatar_url)')
+        .eq('follower_id', auth.user.id);
+
+  const { data, error } = await query.eq('status', 'accepted').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).filter((row: any) => row.profile)
+    .map((row: any) => ({ ...row.profile, followedAt: row.created_at })) as FollowListEntry[];
+}
+
 export async function uploadMyAvatar(input: { uri: string; mimeType: string }): Promise<CreovaProfile> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
