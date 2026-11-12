@@ -21,6 +21,14 @@ export type MessageAttachmentInput = {
   durationMs?: number | null;
 };
 
+export type MessageReactionEmoji = '❤️' | '😂' | '😮' | '😢' | '👍' | '🔥';
+
+export type MessageReactionSummary = {
+  emoji: MessageReactionEmoji;
+  count: number;
+  reactedByMe: boolean;
+};
+
 export type CreovaMessage = {
   id: string;
   conversation_id: string;
@@ -35,6 +43,7 @@ export type CreovaMessage = {
   attachment_size: number | null;
   attachment_duration_ms: number | null;
   attachmentUrl?: string | null;
+  reactions?: MessageReactionSummary[];
   sender: {
     username: string;
     display_name: string;
@@ -142,6 +151,78 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
   );
 }
 
+
+const MESSAGE_REACTION_EMOJIS: MessageReactionEmoji[] = ['❤️', '😂', '😮', '😢', '👍', '🔥'];
+
+async function getMessageReactionSummaries(
+  conversationId: string,
+  messageIds: string[],
+): Promise<Record<string, MessageReactionSummary[]>> {
+  const summaries: Record<string, MessageReactionSummary[]> = {};
+  if (!messageIds.length) return summaries;
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view message reactions.');
+  const { data, error } = await client
+    .from('conversation_message_reactions')
+    .select('message_id, user_id, emoji')
+    .eq('conversation_id', conversationId)
+    .in('message_id', messageIds);
+  if (error) throw error;
+  const grouped = new Map<string, Map<MessageReactionEmoji, { count: number; reactedByMe: boolean }>>();
+  for (const row of data ?? []) {
+    const emoji = row.emoji as MessageReactionEmoji;
+    if (!MESSAGE_REACTION_EMOJIS.includes(emoji)) continue;
+    if (!grouped.has(row.message_id)) grouped.set(row.message_id, new Map());
+    const byEmoji = grouped.get(row.message_id)!;
+    const current = byEmoji.get(emoji) ?? { count: 0, reactedByMe: false };
+    current.count += 1;
+    current.reactedByMe ||= row.user_id === auth.user.id;
+    byEmoji.set(emoji, current);
+  }
+  for (const [messageId, byEmoji] of grouped) {
+    summaries[messageId] = Array.from(byEmoji.entries()).map(([emoji, value]) => ({
+      emoji, count: value.count, reactedByMe: value.reactedByMe,
+    }));
+  }
+  return summaries;
+}
+
+export async function setMessageReaction(
+  conversationId: string,
+  messageId: string,
+  emoji: MessageReactionEmoji | null,
+): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to react to messages.');
+  if (emoji !== null && !MESSAGE_REACTION_EMOJIS.includes(emoji)) {
+    throw new Error('Choose a supported reaction.');
+  }
+  if (emoji === null) {
+    const { error } = await client
+      .from('conversation_message_reactions')
+      .delete()
+      .eq('conversation_id', conversationId)
+      .eq('message_id', messageId)
+      .eq('user_id', auth.user.id);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client
+    .from('conversation_message_reactions')
+    .upsert({
+      conversation_id: conversationId,
+      message_id: messageId,
+      user_id: auth.user.id,
+      emoji,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'message_id,user_id' });
+  if (error) throw error;
+}
+
 export async function getConversationMessages(conversationId: string): Promise<CreovaMessage[]> {
   const client = requireSupabase();
   const { data, error } = await client
@@ -161,9 +242,11 @@ export async function getConversationMessages(conversationId: string): Promise<C
       if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
     });
   }
+  const reactionsByMessage = await getMessageReactionSummaries(conversationId, rows.map(row => row.id));
   return rows.map(row => ({
     ...row,
     attachmentUrl: row.attachment_path ? signedByPath.get(row.attachment_path) ?? null : null,
+    reactions: reactionsByMessage[row.id] ?? [],
     sender: Array.isArray(row.sender) ? row.sender[0] : row.sender,
   })) as CreovaMessage[];
 }
@@ -224,9 +307,11 @@ export async function getConversationMessagesAround(
       if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
     });
   }
+  const reactionsByMessage = await getMessageReactionSummaries(conversationId, rows.map(row => row.id));
   return rows.map(row => ({
     ...row,
     attachmentUrl: row.attachment_path ? signedByPath.get(row.attachment_path) ?? null : null,
+    reactions: reactionsByMessage[row.id] ?? [],
     sender: Array.isArray(row.sender) ? row.sender[0] : row.sender,
   })) as CreovaMessage[];
 }
@@ -387,6 +472,7 @@ export function subscribeToConversationMessages(
   conversationId: string,
   onMessage: (message: CreovaMessage) => void,
   onStatus?: (status: string) => void,
+  onReactionChange?: () => void,
 ): () => void {
   const client = requireSupabase();
   const channel = client.channel(`conversation:${conversationId}`)
@@ -414,6 +500,12 @@ export function subscribeToConversationMessages(
         sender: null,
       });
     })
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'conversation_message_reactions',
+      filter: `conversation_id=eq.${conversationId}`,
+    }, () => onReactionChange?.())
     .subscribe(status => onStatus?.(status));
   return () => { void client.removeChannel(channel); };
 }

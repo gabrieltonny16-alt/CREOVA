@@ -13,10 +13,10 @@ import { getActiveStories, publishStory, markStoryViewed, reactToStory, replyToS
 import type { CreovaStory } from './src/features/stories/storyService';
 import {
   getMyConversations, getConversationMessages, searchConversationMessages, getConversationMessagesAround, createConversation, sendMessage,
-  markConversationRead, respondToMessageRequest, getCurrentMessagingUserId,
+  markConversationRead, respondToMessageRequest, getCurrentMessagingUserId, setMessageReaction,
   subscribeToConversationMessages, subscribeToInboxChanges, createMessageClientId,
 } from './src/features/messaging/messageService';
-import type { CreovaConversation, CreovaMessage, MessageAttachmentInput } from './src/features/messaging/messageService';
+import type { CreovaConversation, CreovaMessage, MessageAttachmentInput, MessageReactionEmoji } from './src/features/messaging/messageService';
 import { supabase, requireSupabase } from './src/lib/supabase';
 import { SafeAreaView, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -938,6 +938,7 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
   const [message, setMessage] = useState('');
   const [activeConversation, setActiveConversation] = useState<CreovaConversation | null>(null);
   const [threadMessages, setThreadMessages] = useState<CreovaMessage[]>([]);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState('');
   const [threadLoading, setThreadLoading] = useState(false);
   const [messageSearchOpen, setMessageSearchOpen] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState('');
@@ -1058,8 +1059,16 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       });
       void loadMessaging();
       void markConversationRead(conversationId);
-    }, setConnectionStatus);
+    }, setConnectionStatus, () => {
+      void getConversationMessages(conversationId).then(setThreadMessages).catch(error => {
+        setMessage(error instanceof Error ? error.message : 'Could not refresh message reactions.');
+      });
+    });
     return unsubscribe;
+  }, [activeConversation?.id]);
+
+  useEffect(() => {
+    setReactionPickerMessageId('');
   }, [activeConversation?.id]);
 
   useEffect(() => {
@@ -1131,6 +1140,22 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       : [...items, person]);
   }
 
+
+
+  async function changeMessageReaction(item: CreovaMessage, emoji: MessageReactionEmoji) {
+    if (!activeConversation || activeConversation.membershipStatus !== 'accepted') return;
+    const alreadySelected = (item.reactions ?? []).some(reaction =>
+      reaction.emoji === emoji && reaction.reactedByMe
+    );
+    try {
+      await setMessageReaction(activeConversation.id, item.id, alreadySelected ? null : emoji);
+      const refreshed = await getConversationMessages(activeConversation.id);
+      setThreadMessages(refreshed);
+      setReactionPickerMessageId('');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update your reaction.');
+    }
+  }
 
   async function runMessageSearch() {
     if (!activeConversation || messageSearchQuery.trim().length < 2 || messageSearchLoading) return;
@@ -1629,6 +1654,39 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
                   return <Text style={{ color: '#83B8FF', fontSize: 9, fontWeight: '800' }}>{label}</Text>;
                 })()}
               </View>
+              {activeConversation?.membershipStatus === 'accepted' && <>
+                {(item.reactions ?? []).length > 0 && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5 }}>
+                  {(item.reactions ?? []).map(reaction => <TouchableOpacity
+                    key={reaction.emoji}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${reaction.emoji} reaction, ${reaction.count} total${reaction.reactedByMe ? ', selected by you' : ''}`}
+                    onPress={() => void changeMessageReaction(item, reaction.emoji)}
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 14, borderWidth: 1, borderColor: reaction.reactedByMe ? COLORS.blue : COLORS.border, backgroundColor: reaction.reactedByMe ? '#173B70' : COLORS.surface, paddingHorizontal: 8, paddingVertical: 4 }}
+                  >
+                    <Text style={{ fontSize: 12 }}>{reaction.emoji}</Text>
+                    <Text style={{ color: COLORS.text, fontSize: 10, fontWeight: '800' }}>{reaction.count}</Text>
+                  </TouchableOpacity>)}
+                </View>}
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel="React to message"
+                  onPress={() => setReactionPickerMessageId(current => current === item.id ? '' : item.id)}
+                  style={{ alignSelf: 'flex-start', paddingVertical: 2, paddingHorizontal: 3 }}
+                >
+                  <Text style={{ color: COLORS.muted, fontSize: 10, fontWeight: '700' }}>＋ React</Text>
+                </TouchableOpacity>
+                {reactionPickerMessageId === item.id && <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7, paddingTop: 2 }}>
+                  {(['❤️', '😂', '😮', '😢', '👍', '🔥'] as MessageReactionEmoji[]).map(emoji => <TouchableOpacity
+                    key={emoji}
+                    accessibilityRole="button"
+                    accessibilityLabel={`React with ${emoji}`}
+                    onPress={() => void changeMessageReaction(item, emoji)}
+                    style={{ width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border }}
+                  >
+                    <Text style={{ fontSize: 17 }}>{emoji}</Text>
+                  </TouchableOpacity>)}
+                </View>}
+              </>}
             </View>;
           })}
         </ScrollView>
