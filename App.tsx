@@ -117,11 +117,15 @@ function ShortVideoPlayer({ uri, active, height }: { uri: string; active: boolea
   );
 }
 
-function StoryVideo({ uri, onFinish }: { uri: string; onFinish: () => void }) {
+function StoryVideo({ uri, paused, onFinish }: { uri: string; paused: boolean; onFinish: () => void }) {
   const player = useVideoPlayer(uri, instance => {
     instance.loop = false;
     instance.play();
   });
+  useEffect(() => {
+    if (paused) player.pause();
+    else player.play();
+  }, [player, paused]);
   useEffect(() => {
     const subscription = player.addListener('playToEnd', onFinish);
     return () => subscription.remove();
@@ -1552,6 +1556,8 @@ function StoriesSection() {
   const [storyCaptionDraft, setStoryCaptionDraft] = useState('');
   const [activeStoryOwnerId, setActiveStoryOwnerId] = useState<string | null>(null);
   const [activeStoryIndex, setActiveStoryIndex] = useState(0);
+  const [storyPaused, setStoryPaused] = useState(false);
+  const [storyProgress, setStoryProgress] = useState(0);
   const [storyReplyDraft, setStoryReplyDraft] = useState('');
   const [storyViewers, setStoryViewers] = useState<Awaited<ReturnType<typeof getMyStoryViewers>>>([]);
   const [viewersOpen, setViewersOpen] = useState(false);
@@ -1633,6 +1639,8 @@ function StoriesSection() {
     if (!group.length) return;
     setActiveStoryOwnerId(ownerId);
     setActiveStoryIndex(0);
+    setStoryPaused(false);
+    setStoryProgress(0);
     setStoryReplyDraft('');
     setViewersOpen(false);
     setStoryViewers([]);
@@ -1650,6 +1658,8 @@ function StoriesSection() {
     if (activeStoryIndex + 1 < activeStoryGroup.length) {
       const nextIndex = activeStoryIndex + 1;
       setActiveStoryIndex(nextIndex);
+      setStoryPaused(false);
+      setStoryProgress(0);
       const next = activeStoryGroup[nextIndex];
       if (next.user_id !== currentUserId) {
         try {
@@ -1660,6 +1670,22 @@ function StoriesSection() {
     } else {
       setActiveStoryOwnerId(null);
       setViewersOpen(false);
+    }
+  }
+
+  async function goBackStory() {
+    if (activeStoryIndex > 0) {
+      const previousIndex = activeStoryIndex - 1;
+      setActiveStoryIndex(previousIndex);
+      setStoryPaused(false);
+      setStoryProgress(0);
+      const previous = activeStoryGroup[previousIndex];
+      if (previous.user_id !== currentUserId) {
+        try {
+          await markStoryViewed(previous.id);
+          setStories(items => items.map(item => item.id === previous.id ? { ...item, viewedByMe: true } : item));
+        } catch { /* Keep navigation responsive if view tracking fails. */ }
+      }
     }
   }
 
@@ -1729,10 +1755,19 @@ function StoriesSection() {
   }, []);
 
   useEffect(() => {
-    if (!activeStory || activeStory.media_type === 'video') return;
-    const timer = setTimeout(() => { void advanceStory(); }, 6000);
-    return () => clearTimeout(timer);
-  }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId]);
+    if (!activeStory || activeStory.media_type === 'video' || storyPaused) return;
+    const timer = setInterval(() => {
+      setStoryProgress(progress => {
+        const next = Math.min(6000, progress + 100);
+        if (next >= 6000) {
+          clearInterval(timer);
+          void advanceStory();
+        }
+        return next;
+      });
+    }, 100);
+    return () => clearInterval(timer);
+  }, [activeStory?.id, activeStoryIndex, activeStoryOwnerId, storyPaused]);
 
 
   return (
@@ -1772,7 +1807,9 @@ function StoriesSection() {
         <View style={{ flex: 1, backgroundColor: '#05070D', paddingTop: Platform.OS === 'android' ? 28 : 48, paddingHorizontal: 12, paddingBottom: 22 }}>
           {activeStory && <>
             <View style={{ flexDirection: 'row', gap: 4, marginBottom: 14 }}>
-              {activeStoryGroup.map((item, index) => <View key={item.id} style={{ flex: 1, height: 3, borderRadius: 3, backgroundColor: index <= activeStoryIndex ? '#FFFFFF' : '#526078' }} />)}
+              {activeStoryGroup.map((item, index) => <View key={item.id} style={{ flex: 1, height: 3, borderRadius: 3, overflow: 'hidden', backgroundColor: '#526078' }}>
+                <View style={{ height: '100%', width: index < activeStoryIndex ? '100%' : index === activeStoryIndex ? `${Math.round(storyProgress / 6000 * 100)}%` : '0%', backgroundColor: '#FFFFFF' }} />
+              </View>)}
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 14 }}>
               <View style={styles.resultAvatar}>
@@ -1784,12 +1821,22 @@ function StoriesSection() {
                 <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{activeStory.author?.display_name || activeStory.author?.username || 'CREOVA member'}</Text>
                 <Text style={{ color: '#A9B4C8', fontSize: 10 }}>{new Date(activeStory.created_at).toLocaleString()}</Text>
               </View>
-              <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)}><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
+              <TouchableOpacity onPress={() => setStoryPaused(value => !value)} accessibilityRole="button" accessibilityLabel={storyPaused ? 'Resume story' : 'Pause story'} style={{ paddingHorizontal: 8, paddingVertical: 5 }}>
+                <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '800' }}>{storyPaused ? '▶' : 'Ⅱ'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setActiveStoryOwnerId(null)} accessibilityRole="button" accessibilityLabel="Close story"><Text style={{ color: '#FFFFFF', fontSize: 23 }}>×</Text></TouchableOpacity>
             </View>
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              {activeStory.media_type === 'video'
-                ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} onFinish={() => { void advanceStory(); }} />
-                : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
+              <View style={{ flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center' }}>
+                {activeStory.media_type === 'video'
+                  ? <StoryVideo key={activeStory.id} uri={activeStory.mediaUrl} paused={storyPaused} onFinish={() => { void advanceStory(); }} />
+                  : <Image source={{ uri: activeStory.mediaUrl }} resizeMode="contain" style={{ width: '100%', height: '100%' }} />}
+                <View pointerEvents="box-none" style={{ position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, flexDirection: 'row' }}>
+                  <TouchableOpacity onPress={() => void goBackStory()} accessibilityRole="button" accessibilityLabel="Previous story" style={{ flex: 1 }} />
+                  <TouchableOpacity onPress={() => void advanceStory()} accessibilityRole="button" accessibilityLabel="Next story" style={{ flex: 1 }} />
+                </View>
+                {storyPaused && <View pointerEvents="none" style={{ position: 'absolute', alignSelf: 'center', backgroundColor: '#00000088', borderRadius: 28, padding: 16 }}><Text style={{ color: '#FFFFFF', fontSize: 25 }}>Ⅱ</Text></View>}
+              </View>
               {!!activeStory.caption && <Text style={{ color: '#FFFFFF', fontSize: 14, textAlign: 'center', padding: 12 }}>{activeStory.caption}</Text>}
             </View>
             {activeStory.user_id === currentUserId && <TouchableOpacity onPress={() => void loadStoryViewers()} style={{ alignSelf: 'flex-start', paddingVertical: 9 }}>
@@ -1812,7 +1859,7 @@ function StoriesSection() {
                     <TouchableOpacity disabled={storyBusy || !storyReplyDraft.trim()} onPress={() => void sendStoryReply()} style={{ padding: 10 }}><Text style={{ color: '#8DBBFF', fontWeight: '800' }}>{storyBusy ? '…' : 'Send'}</Text></TouchableOpacity>
                   </View>
                 </View>}
-            <TouchableOpacity onPress={() => void advanceStory()} style={{ alignSelf: 'center', padding: 10 }}><Text style={{ color: '#A9B4C8', fontSize: 10 }}>Tap to continue</Text></TouchableOpacity>
+            <Text style={{ color: '#64748B', fontSize: 9, textAlign: 'center', paddingTop: 6 }}>Tap right to continue · Tap left to go back</Text>
           </>}
         </View>
       </Modal>
