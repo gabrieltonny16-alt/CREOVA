@@ -257,6 +257,22 @@ export async function setPostPinned(postId: string, pinned: boolean): Promise<vo
   if (error) throw error;
 }
 
+export async function getCreatorPosts(profileId: string): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to view creator posts.');
+
+  // RLS remains the privacy boundary: only posts the signed-in viewer may access are returned.
+  const { data, error } = await client.from('posts').select(FEED_POST_SELECT)
+    .eq('author_id', profileId)
+    .order('is_pinned', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  return hydrateFeedPosts((data ?? []) as unknown as RawFeedPost[], auth.user.id);
+}
+
 export async function getMyPosts(): Promise<CreovaFeedPost[]> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
