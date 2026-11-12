@@ -1029,6 +1029,9 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
     setDraft('');
     setDraftClientId(null);
     setPendingAttachment(null);
+    setEditingMessageId('');
+    setEditingMessageDraft('');
+    setDeleteConfirmMessageId('');
     setThreadLoading(true);
     setConnectionStatus('CONNECTING');
     try {
@@ -1214,7 +1217,11 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       await editConversationMessage(item.id, editingMessageDraft);
       setEditingMessageId('');
       setEditingMessageDraft('');
-      setThreadMessages(await getConversationMessages(activeConversation.id));
+      try {
+        setThreadMessages(await getConversationMessages(activeConversation.id));
+      } catch {
+        setMessage('Message edited, but the conversation could not refresh. Pull to refresh.');
+      }
       await loadMessaging();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not edit this message.');
@@ -1232,9 +1239,20 @@ function InboxScreen({ onOpenPost, messageTargetId, onMessageTargetHandled }: { 
       setDeleteConfirmMessageId('');
       setEditingMessageId('');
       setEditingMessageDraft('');
-      setThreadMessages(await getConversationMessages(activeConversation.id));
+      let threadRefreshFailed = false;
+      try {
+        setThreadMessages(await getConversationMessages(activeConversation.id));
+      } catch {
+        threadRefreshFailed = true;
+      }
       await loadMessaging();
-      if (!mediaCleaned) setMessage('Message deleted. Its attachment is no longer accessible, but storage cleanup did not finish.');
+      if (!mediaCleaned && threadRefreshFailed) {
+        setMessage('Message deleted. Its media is inaccessible, but storage cleanup and thread refresh both need another try.');
+      } else if (!mediaCleaned) {
+        setMessage('Message deleted. Its attachment is no longer accessible, but storage cleanup did not finish.');
+      } else if (threadRefreshFailed) {
+        setMessage('Message deleted, but the conversation could not refresh. Pull to refresh.');
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not delete this message.');
     } finally {
