@@ -2,27 +2,32 @@
 
 **Create. Connect. Evolve.**
 
-CREOVA is a full-scale social platform combining familiar social networking and photo-sharing experiences, short-form video and creator tools, and CREOVA's original execution ecosystem.
+CREOVA is a next-generation social platform built to deliver the core experiences people expect from Instagram and TikTok, improve on the weaknesses of today's social platforms, and then introduce original CREOVA capabilities.
 
-## Product pillars
+## Product sequence
 
-1. **Social:** profiles, follows, feeds, posts, stories, comments, likes, sharing, and messaging.
-2. **Entertainment:** vertical video, creator tools, sounds, effects, discovery, and LIVE capabilities.
-3. **Evolution:** Anchors, Iterations, execution trees, proof of execution, collaboration, and skill discovery.
+1. **Parity first:** accounts, profiles, social graph, feeds, photo/video publishing, Stories, Explore, messaging, notifications, and creator tools.
+2. **Outperform:** improve discovery controls, creator value, privacy, safety, accessibility, performance, reliability, and user control.
+3. **CREOVA originals:** introduce the Anchor/Iteration and execution ecosystem after the parity and improvement foundations are strong.
 
-## Clean rebuild
+CREOVA will use original code, architecture, algorithms, and visual identity. Feature parity means comparable user-facing capabilities, not copying proprietary source code, trademarks, or protected assets.
 
-This branch is the clean application rebuild, starting from the documentation-only `main` branch. Previous application implementations remain on their original branches for reference and rollback; they are not part of this new application baseline.
+## Current implementation
+
+The repository contains the cross-platform Expo/React Native application, Supabase-backed social and messaging services, and versioned database/storage/security migrations.
+
+Current automated CI validates dependency installation, Expo compatibility, TypeScript, and web export. Those checks do not replace authenticated Supabase tests, migration application, Android device testing, or end-to-end verification.
+
+## Product and engineering standards
+
+- Build for modern mobile and web experiences, not the constraints of older platform generations.
+- Real functionality only: no fake success states or demo-only controls presented as complete.
+- Enforce privacy and authorization on the server, not only in the UI.
+- Verify every feature across its UI, persistence, failure handling, accessibility, and Android/Web behavior.
+- Integrate routine feature work when required checks pass; do not leave completed work sitting in draft branches.
+- Keep paid services, production rollout, live payments, advertising spend, and external messaging behind explicit authorization.
 
 See:
 - [Product specification](docs/PRODUCT_SPECIFICATION.md)
-- [Rebuild plan](docs/REBUILD_PLAN.md)
-
-## Engineering principles
-
-- Real, tested functionality; no fake success states or demo-only controls.
-- Android and Web share one product identity and backend contracts.
-- Security and authorization are enforced server-side.
-- Preserve previous branches and production data until explicit migration/retirement approval.
-- No paid provider, live payment, advertising spend, or external messaging without explicit approval.
-- Build in verified increments and document what has and has not been tested.
+- [Parity checklist](docs/FEATURE_PARITY_CHECKLIST.md)
+- [Current build plan](docs/REBUILD_PLAN.md)
