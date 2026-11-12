@@ -4,6 +4,7 @@ export type MessageParticipant = {
   user_id: string;
   role: 'admin' | 'member';
   membership_status: 'accepted' | 'pending' | 'declined' | 'left';
+  last_read_at?: string | null;
   profile: {
     username: string;
     display_name: string;
@@ -84,7 +85,7 @@ export async function getMyConversations(): Promise<CreovaConversation[]> {
 
   const [memberResult, messageResult] = await Promise.all([
     client.from('conversation_members')
-      .select('conversation_id, user_id, role, membership_status, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
+      .select('conversation_id, user_id, role, membership_status, last_read_at, profile:profiles!conversation_members_user_id_fkey(username, display_name, avatar_url)')
       .in('conversation_id', ids),
     client.from('conversation_messages')
       .select('id, conversation_id, sender_id, client_message_id, body, created_at, attachment_type, attachment_path, attachment_name, attachment_mime_type, attachment_size, attachment_duration_ms, sender:profiles!conversation_messages_sender_id_fkey(username, display_name, avatar_url)')
