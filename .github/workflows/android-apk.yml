@@ -1,20 +1,7 @@
 name: CREOVA Android APK
 
 on:
-  push:
-    branches:
-      - rebuild/fresh-social-platform
-      - rebuild/android-bottom-safe-area
-      - rebuild/messaging-media-voice
-    paths:
-      - .github/workflows/android-apk.yml
-      - .github/workflows/ci.yml
-      - assets/**
-      - App.tsx
-      - app.json
-      - eas.json
-      - package.json
-      - src/**
+  # Build an APK only when explicitly requested.
   workflow_dispatch:
 
 permissions:

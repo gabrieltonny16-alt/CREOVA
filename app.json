@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "CREOVA",
+    "slug": "creova",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "creova",
+    "android": {
+      "package": "club.luxora.creova",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/brand/creova-icon-safe-area-preview.png",
+        "backgroundColor": "#000000"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "typedRoutes": false
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "CREOVA accesses your photos so you can share images with your community.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "CREOVA uses your microphone so you can record voice notes.",
+          "recordAudioAndroid": true
+        }
+      ]
+    ],
+    "icon": "./assets/brand/creova-icon-safe-area-preview.png"
+  }
+}

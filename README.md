@@ -1,31 +1,33 @@
 # CREOVA
 
-**An Active Skill Execution Network**
+**Create. Connect. Evolve.**
 
-CREOVA is built around one core loop:
+CREOVA is a next-generation social platform built to deliver the core experiences people expect from Instagram and TikTok, improve on the weaknesses of today's social platforms, and then introduce original CREOVA capabilities.
 
-**ACTION → EXECUTION → EVOLUTION → PROOF → DISCOVERY**
+## Product sequence
 
-## Product foundation
+1. **Parity first:** accounts, profiles, social graph, feeds, photo/video publishing, Stories, Explore, messaging, notifications, and creator tools.
+2. **Outperform:** improve discovery controls, creator value, privacy, safety, accessibility, performance, reliability, and user control.
+3. **CREOVA originals:** introduce the Anchor/Iteration and execution ecosystem after the parity and improvement foundations are strong.
 
-- **Anchor:** an idea, challenge, skill, or original contribution.
-- **Iteration:** someone builds on an Anchor with execution, improvement, or a new interpretation.
-- **Execution Tree:** the connected history of how an Anchor evolves through contributions.
+CREOVA will use original code, architecture, algorithms, and visual identity. Feature parity means comparable user-facing capabilities, not copying proprietary source code, trademarks, or protected assets.
 
-CREOVA is not intended to be a generic scrolling-first social network. The product should help people create, execute, collaborate, develop skills, and show proof of progress.
+## Current implementation
 
-## Brand direction
+The repository contains the cross-platform Expo/React Native application, Supabase-backed social and messaging services, and versioned database/storage/security migrations.
 
-The selected visual direction is a premium planetary emblem: Earth in deep space, wrapped by a metallic-gold orbital C and a central play mark. The full artwork and a simplified launcher icon are separate brand assets.
+Current automated CI validates dependency installation, Expo compatibility, TypeScript, and web export. Those checks do not replace authenticated Supabase tests, migration application, Android device testing, or end-to-end verification.
 
-## Development principles
+## Product and engineering standards
 
-- Preserve existing work; inspect before changing.
-- Build and test real functionality, not mock screens.
-- Develop on feature branches; keep `main` protected from unfinished work.
-- Do not enable paid services, live payments, or external messaging without explicit approval.
-- Verify every test before reporting its result.
+- Build for modern mobile and web experiences, not the constraints of older platform generations.
+- Real functionality only: no fake success states or demo-only controls presented as complete.
+- Enforce privacy and authorization on the server, not only in the UI.
+- Verify every feature across its UI, persistence, failure handling, accessibility, and Android/Web behavior.
+- Integrate routine feature work when required checks pass; do not leave completed work sitting in draft branches.
+- Keep paid services, production rollout, live payments, advertising spend, and external messaging behind explicit authorization.
 
-## Current status
-
-Repository foundation created. Application source, runtime configuration, and database migrations still need to be brought into this repository before implementation or test claims can be made.
+See:
+- [Product specification](docs/PRODUCT_SPECIFICATION.md)
+- [Parity checklist](docs/FEATURE_PARITY_CHECKLIST.md)
+- [Current build plan](docs/REBUILD_PLAN.md)
