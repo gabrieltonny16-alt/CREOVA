@@ -308,13 +308,16 @@ function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => vo
   </View>;
 }
 
-function PublicProfileScreen({ username, onBack, onOpenProfile }: {
+function PublicProfileScreen({ username, onBack, onOpenProfile, onOpenPost }: {
   username: string;
   onBack: () => void;
   onOpenProfile: (username: string) => void;
+  onOpenPost: (postId: string) => void;
 }) {
   const [profile, setProfile] = useState<Awaited<ReturnType<typeof getProfileByUsername>> | null>(null);
   const [connections, setConnections] = useState<Awaited<ReturnType<typeof getProfileConnections>>>([]);
+  const [profilePosts, setProfilePosts] = useState<Awaited<ReturnType<typeof getProfilePosts>>>([]);
+  const [postsLoading, setPostsLoading] = useState(false);
   const [connectionType, setConnectionType] = useState<'followers' | 'following' | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -324,15 +327,21 @@ function PublicProfileScreen({ username, onBack, onOpenProfile }: {
     setLoading(true);
     setMessage('');
     try {
-      setProfile(await getProfileByUsername(username));
+      const loadedProfile = await getProfileByUsername(username);
+      setProfile(loadedProfile);
+      setPostsLoading(true);
+      const loadedPosts = await getProfilePosts(loadedProfile.id);
+      setProfilePosts(loadedPosts);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load this profile.');
     } finally {
+      setPostsLoading(false);
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    setProfilePosts([]);
     setConnectionType(null);
     setConnections([]);
     loadProfile();
@@ -420,7 +429,12 @@ function PublicProfileScreen({ username, onBack, onOpenProfile }: {
         <Text style={styles.searchButtonText}>{busy ? 'Please wait…' : profile.follow_state === 'accepted' ? 'Following · Unfollow' : profile.follow_state === 'pending' ? 'Requested · Cancel' : profile.follow_state === 'rejected' ? 'Follow again' : 'Follow'}</Text>
       </TouchableOpacity>
       {!!message && <Text style={styles.notice}>{message}</Text>}
-      {profile.is_private && profile.follow_state !== 'accepted' && <Text style={styles.privacyHint}>Follow this private account to see its posts and full activity.</Text>}
+      {profile.is_private && profile.follow_state !== 'accepted'
+        ? <Text style={styles.privacyHint}>Follow this private account to see its posts and full activity.</Text>
+        : <View style={styles.profilePostsSection}>
+            <Text style={styles.subheading}>Posts</Text>
+            <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
+          </View>}
     </View>}
     {!loading && !profile && <EmptyState title="Profile unavailable" description={message || 'This CREOVA profile could not be found.'} />}
   </View>;
@@ -567,7 +581,7 @@ function InboxScreen() {
   </View>;
 }
 
-function ProfileScreen() {
+function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
   const [profile, setProfile] = useState<CreovaProfile | null>(null);
   const [profileStats, setProfileStats] = useState({ followers: 0, following: 0 });
   const [error, setError] = useState('');
@@ -581,6 +595,8 @@ function ProfileScreen() {
   const [ownConnections, setOwnConnections] = useState<Awaited<ReturnType<typeof getProfileConnections>>>([]);
   const [ownConnectionType, setOwnConnectionType] = useState<'followers' | 'following' | null>(null);
   const [loadingConnections, setLoadingConnections] = useState(false);
+  const [profilePosts, setProfilePosts] = useState<Awaited<ReturnType<typeof getProfilePosts>>>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
 
   async function openOwnConnections(type: 'followers' | 'following') {
     if (!profile) return;
@@ -601,6 +617,13 @@ function ProfileScreen() {
     getMyProfile().then(value => {
       if (!active) return;
       setProfile(value);
+      getProfilePosts(value.id).then(items => {
+        if (active) setProfilePosts(items);
+      }).catch(postsError => {
+        if (active) setNotice(postsError instanceof Error ? postsError.message : 'Could not load your posts.');
+      }).finally(() => {
+        if (active) setPostsLoading(false);
+      });
       setDisplayName(value.display_name);
       setBio(value.bio);
       setIsPrivate(value.is_private);
@@ -725,6 +748,10 @@ function ProfileScreen() {
       </View> : <TouchableOpacity onPress={() => { setNotice(''); setEditing(true); }} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Edit profile</Text>
       </TouchableOpacity>}
+      <View style={styles.profilePostsSection}>
+        <Text style={styles.subheading}>Your posts</Text>
+        <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
+      </View>
       <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
     </View> : <EmptyState title={error || 'Loading your profile…'} description={error ? 'Check your connection and try again.' : 'Your account profile is being loaded from CREOVA.'} />}
     <EmptyState title="Your evolution starts here" description="Your posts, Anchors, Iterations, skills, and proof of execution will come together on your profile." />
@@ -734,6 +761,7 @@ function ProfileScreen() {
 function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string | null>(null);
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
 
@@ -743,18 +771,22 @@ function MainApp() {
   };
 
   const renderScreen = () => {
+    if (selectedPostId) {
+      return <PostDetailScreen postId={selectedPostId} onBack={() => setSelectedPostId(null)} />;
+    }
     if (selectedProfileUsername) {
       return <PublicProfileScreen
         username={selectedProfileUsername}
         onBack={() => setSelectedProfileUsername(null)}
         onOpenProfile={setSelectedProfileUsername}
+        onOpenPost={setSelectedPostId}
       />;
     }
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenProfile={openProfile} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <InboxScreen />;
-      case 'Profile': return <ProfileScreen />;
+      case 'Profile': return <ProfileScreen onOpenPost={setSelectedPostId} />;
       default: return <HomeScreen />;
     }
   };
