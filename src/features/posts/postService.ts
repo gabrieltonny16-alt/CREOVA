@@ -438,17 +438,19 @@ export async function setPostCommentReaction(
     return null;
   }
   if (existing) {
-    const { error } = await client.from('comment_reactions').update({ reaction_type: reactionType })
+    // CREOVA-DEV currently grants authenticated users SELECT/INSERT/DELETE on
+    // comment_reactions, but not UPDATE. Replace the user's existing reaction
+    // using the granted operations rather than relying on a missing privilege.
+    const { error: deleteError } = await client.from('comment_reactions').delete()
       .eq('comment_id', commentId).eq('user_id', auth.user.id);
-    if (error) throw error;
-  } else {
-    const { error } = await client.from('comment_reactions').insert({
-      comment_id: commentId,
-      user_id: auth.user.id,
-      reaction_type: reactionType,
-    });
-    if (error) throw error;
+    if (deleteError) throw deleteError;
   }
+  const { error: insertError } = await client.from('comment_reactions').insert({
+    comment_id: commentId,
+    user_id: auth.user.id,
+    reaction_type: reactionType,
+  });
+  if (insertError) throw insertError;
   return reactionType;
 }
 
