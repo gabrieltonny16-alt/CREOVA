@@ -27,6 +27,13 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#3985FF",
+          "defaultChannel": "creova-activity"
+        }
       ]
     ],
     "icon": "./assets/brand/creova-icon.png"
