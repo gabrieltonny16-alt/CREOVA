@@ -4,8 +4,8 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike } from './src/features/posts/postService';
-import type { CreovaFeedPost } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
+import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import {
   SafeAreaView,
@@ -244,20 +244,49 @@ function VideoPostPlayer({ uri }: { uri: string }) {
 
 function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => void }) {
   const [post, setPost] = useState<Awaited<ReturnType<typeof getPostById>> | null>(null);
+  const [comments, setComments] = useState<CreovaPostComment[]>([]);
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [commentsLoading, setCommentsLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [likeBusy, setLikeBusy] = useState(false);
+  const [commentDraft, setCommentDraft] = useState('');
+  const [replyingTo, setReplyingTo] = useState<CreovaPostComment | null>(null);
+  const [editingComment, setEditingComment] = useState<CreovaPostComment | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [commentBusy, setCommentBusy] = useState(false);
+
+  async function loadComments() {
+    setCommentsLoading(true);
+    try {
+      const loaded = await getPostComments(postId);
+      setComments(loaded);
+      setPost(current => current ? { ...current, commentCount: loaded.length } : current);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load comments.');
+    } finally {
+      setCommentsLoading(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getPostById(postId).then(value => {
-      if (active) setPost(value);
-    }).catch(error => {
-      if (active) setMessage(error instanceof Error ? error.message : 'Could not load this post.');
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
+    setCommentsLoading(true);
+    Promise.all([getPostById(postId), getPostComments(postId), supabase ? supabase.auth.getUser() : Promise.resolve({ data: { user: null }, error: null })])
+      .then(([loadedPost, loadedComments, auth]) => {
+        if (!active) return;
+        setPost({ ...loadedPost, commentCount: loadedComments.length });
+        setComments(loadedComments);
+        setViewerId(auth.data.user?.id ?? null);
+      }).catch(error => {
+        if (active) setMessage(error instanceof Error ? error.message : 'Could not load this post.');
+      }).finally(() => {
+        if (active) {
+          setLoading(false);
+          setCommentsLoading(false);
+        }
+      });
     return () => { active = false; };
   }, [postId]);
 
@@ -274,6 +303,121 @@ function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => vo
       setLikeBusy(false);
     }
   }
+
+  async function submitComment() {
+    if (!post || commentBusy) return;
+    setCommentBusy(true);
+    setMessage('');
+    try {
+      if (editingComment) {
+        await updatePostComment(editingComment.id, commentDraft);
+        setEditingComment(null);
+      } else {
+        await createPostComment(post.id, commentDraft, replyingTo?.id ?? null);
+        setReplyingTo(null);
+      }
+      setCommentDraft('');
+      await loadComments();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not save your comment.');
+    } finally {
+      setCommentBusy(false);
+    }
+  }
+
+  function beginEdit(comment: CreovaPostComment) {
+    setEditingComment(comment);
+    setReplyingTo(null);
+    setCommentDraft(comment.body);
+    setDeleteConfirmId(null);
+  }
+
+  function cancelComposer() {
+    setEditingComment(null);
+    setReplyingTo(null);
+    setCommentDraft('');
+  }
+
+  async function confirmDelete(commentId: string) {
+    if (commentBusy) return;
+    setCommentBusy(true);
+    setMessage('');
+    try {
+      await deletePostComment(commentId);
+      setDeleteConfirmId(null);
+      if (editingComment?.id === commentId) cancelComposer();
+      await loadComments();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete this comment.');
+    } finally {
+      setCommentBusy(false);
+    }
+  }
+
+  async function reactToComment(commentId: string, reaction: CreovaCommentReaction) {
+    if (commentBusy) return;
+    setCommentBusy(true);
+    setMessage('');
+    try {
+      await setPostCommentReaction(commentId, reaction);
+      await loadComments();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not update this reaction.');
+    } finally {
+      setCommentBusy(false);
+    }
+  }
+
+  const reactionOptions: { type: CreovaCommentReaction; emoji: string }[] = [
+    { type: 'like', emoji: '👍' }, { type: 'love', emoji: '❤️' },
+    { type: 'laugh', emoji: '😂' }, { type: 'wow', emoji: '😮' },
+    { type: 'sad', emoji: '😢' }, { type: 'angry', emoji: '😡' },
+  ];
+
+  function renderComment(comment: CreovaPostComment, isReply = false) {
+    const ownComment = comment.user_id === viewerId;
+    const counts = reactionOptions.map(option => ({
+      ...option,
+      count: comment.reactions.filter(item => item.reaction_type === option.type).length,
+      selected: comment.reactions.some(item => item.user_id === viewerId && item.reaction_type === option.type),
+    }));
+    return <View key={comment.id} style={[styles.commentItem, isReply && styles.commentReply]}>
+      <View style={styles.commentAvatar}>
+        <Text style={styles.commentAvatarText}>{(comment.author?.display_name || comment.author?.username || 'C').slice(0, 1).toUpperCase()}</Text>
+      </View>
+      <View style={styles.commentMain}>
+        <View style={styles.commentBubble}>
+          <Text style={styles.commentAuthor}>{comment.author?.display_name || 'CREOVA member'} <Text style={styles.commentHandle}>@{comment.author?.username || 'member'}</Text></Text>
+          <Text style={styles.commentBody}>{comment.body}</Text>
+          {comment.updated_at !== comment.created_at && <Text style={styles.commentEdited}>Edited</Text>}
+        </View>
+        <View style={styles.commentMetaRow}>
+          <Text style={styles.commentTime}>{new Date(comment.created_at).toLocaleDateString()}</Text>
+          {!isReply && <TouchableOpacity onPress={() => { setReplyingTo(comment); setEditingComment(null); setCommentDraft(''); setDeleteConfirmId(null); }}>
+            <Text style={styles.commentActionText}>Reply</Text>
+          </TouchableOpacity>}
+          {ownComment && <TouchableOpacity onPress={() => beginEdit(comment)}>
+            <Text style={styles.commentActionText}>Edit</Text>
+          </TouchableOpacity>}
+          {ownComment && <TouchableOpacity onPress={() => setDeleteConfirmId(deleteConfirmId === comment.id ? null : comment.id)}>
+            <Text style={styles.commentDeleteText}>Delete</Text>
+          </TouchableOpacity>}
+        </View>
+        {deleteConfirmId === comment.id && <View style={styles.commentConfirmRow}>
+          <Text style={styles.commentConfirmText}>Delete this comment?</Text>
+          <TouchableOpacity onPress={() => setDeleteConfirmId(null)}><Text style={styles.commentActionText}>Keep</Text></TouchableOpacity>
+          <TouchableOpacity disabled={commentBusy} onPress={() => confirmDelete(comment.id)}><Text style={styles.commentDeleteText}>{commentBusy ? 'Deleting…' : 'Delete'}</Text></TouchableOpacity>
+        </View>}
+        <View style={styles.commentReactionRow}>
+          {counts.map(option => <TouchableOpacity key={option.type} disabled={commentBusy} onPress={() => reactToComment(comment.id, option.type)} style={[styles.commentReactionChip, option.selected && styles.commentReactionSelected]}>
+            <Text style={styles.commentReactionText}>{option.emoji}{option.count > 0 ? ` ${option.count}` : ''}</Text>
+          </TouchableOpacity>)}
+        </View>
+      </View>
+    </View>;
+  }
+
+  const rootComments = comments.filter(comment => !comment.parent_comment_id);
 
   return <View style={styles.screenContent}>
     <TouchableOpacity onPress={onBack} style={styles.signOutButton}>
@@ -301,9 +445,38 @@ function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => vo
         <TouchableOpacity disabled={likeBusy} onPress={toggleLike} style={styles.postAction}>
           <Text style={[styles.postActionText, post.likedByMe && styles.postLiked]}>{post.likedByMe ? '♥' : '♡'} {post.likeCount}</Text>
         </TouchableOpacity>
-        <View style={styles.postAction}><Text style={styles.postActionText}>▢ {post.commentCount} comments</Text></View>
+        <View style={styles.postAction}><Text style={styles.postActionText}>▢ {comments.length} comments</Text></View>
       </View>
-      {!!message && <Text style={styles.notice}>{message}</Text>}
+      <View style={styles.commentsSection}>
+        <Text style={styles.subheading}>Conversation</Text>
+        {(replyingTo || editingComment) && <View style={styles.replyingBanner}>
+          <Text style={styles.replyingBannerText}>{editingComment ? 'Editing your comment' : `Replying to @${replyingTo?.author?.username || 'member'}`}</Text>
+          <TouchableOpacity onPress={cancelComposer}><Text style={styles.commentActionText}>Cancel</Text></TouchableOpacity>
+        </View>}
+        <TextInput
+          value={commentDraft}
+          onChangeText={setCommentDraft}
+          placeholder={replyingTo ? 'Write a reply…' : editingComment ? 'Edit your comment…' : 'Add to the conversation…'}
+          placeholderTextColor={COLORS.muted}
+          style={styles.commentComposerInput}
+          multiline
+          maxLength={2000}
+          editable={!commentBusy}
+        />
+        <View style={styles.commentComposerFooter}>
+          <Text style={styles.commentCounter}>{commentDraft.length}/2000</Text>
+          <TouchableOpacity disabled={commentBusy || !commentDraft.trim()} onPress={submitComment} style={[styles.commentSendButton, (commentBusy || !commentDraft.trim()) && styles.publishButtonDisabled]}>
+            <Text style={styles.commentSendText}>{commentBusy ? 'Saving…' : editingComment ? 'Save edit' : replyingTo ? 'Reply' : 'Comment'}</Text>
+          </TouchableOpacity>
+        </View>
+        {!!message && <Text style={styles.notice}>{message}</Text>}
+        {commentsLoading && <EmptyState title="Loading comments" description="Getting the conversation." />}
+        {!commentsLoading && rootComments.length === 0 && <EmptyState title="Start the conversation" description="Be the first to comment on this post." />}
+        {!commentsLoading && rootComments.map(comment => <View key={comment.id} style={styles.commentThread}>
+          {renderComment(comment)}
+          {comments.filter(reply => reply.parent_comment_id === comment.id).map(reply => renderComment(reply, true))}
+        </View>)}
+      </View>
     </View>}
   </View>;
 }
@@ -972,6 +1145,35 @@ const styles = StyleSheet.create({
   videoPreview: { alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: '#14233B' },
   videoPreviewIcon: { color: '#FFFFFF', fontSize: 35, fontWeight: '900' },
   videoPreviewText: { color: '#C9D9F4', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
+  commentsSection: { gap: 12, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 15 },
+  commentThread: { gap: 8, paddingBottom: 8 },
+  commentItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 9 },
+  commentReply: { marginLeft: 34 },
+  commentAvatar: { width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center' },
+  commentAvatarText: { color: '#A7C6FF', fontSize: 11, fontWeight: '800' },
+  commentMain: { flex: 1, gap: 5 },
+  commentBubble: { backgroundColor: '#0B1322', borderRadius: 12, paddingHorizontal: 11, paddingVertical: 9, gap: 5 },
+  commentAuthor: { color: COLORS.text, fontSize: 11, fontWeight: '800' },
+  commentHandle: { color: COLORS.muted, fontWeight: '500' },
+  commentBody: { color: COLORS.text, fontSize: 12, lineHeight: 18 },
+  commentEdited: { color: COLORS.muted, fontSize: 9 },
+  commentMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 13, paddingHorizontal: 3 },
+  commentTime: { color: COLORS.muted, fontSize: 9 },
+  commentActionText: { color: '#9ABEFF', fontSize: 10, fontWeight: '800' },
+  commentDeleteText: { color: '#FF91A9', fontSize: 10, fontWeight: '800' },
+  commentConfirmRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 3 },
+  commentConfirmText: { color: COLORS.text, fontSize: 10, flex: 1 },
+  commentReactionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, paddingLeft: 2 },
+  commentReactionChip: { paddingHorizontal: 7, paddingVertical: 4, borderRadius: 12, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  commentReactionSelected: { borderColor: '#6F9FE8', backgroundColor: COLORS.accentSoft },
+  commentReactionText: { color: COLORS.text, fontSize: 9 },
+  replyingBanner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: COLORS.accentSoft, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 9 },
+  replyingBannerText: { color: '#A7C6FF', fontSize: 10, fontWeight: '700' },
+  commentComposerInput: { minHeight: 76, maxHeight: 150, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0B1322', color: COLORS.text, padding: 12, fontSize: 12, lineHeight: 18, textAlignVertical: 'top' },
+  commentComposerFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  commentCounter: { color: COLORS.muted, fontSize: 9 },
+  commentSendButton: { minHeight: 34, paddingHorizontal: 15, borderRadius: 10, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center' },
+  commentSendText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   postDetailCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 15, gap: 14 },
   detailImage: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#050A13' },
   detailVideo: { width: '100%', aspectRatio: 9 / 16, borderRadius: 13, backgroundColor: '#050A13' },
