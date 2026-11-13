@@ -1103,7 +1103,7 @@ function MainApp() {
         void getUnreadNotificationCount().then(count => {
           if (active) setUnreadNotificationCount(count);
         }).catch(() => undefined);
-      });
+      }, 'badge');
     }
     void startNotifications();
     return () => {
