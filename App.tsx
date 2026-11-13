@@ -771,6 +771,9 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
   const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [busyFollowRequest, setBusyFollowRequest] = useState('');
+  const [handledFollowRequests, setHandledFollowRequests] = useState<Record<string, 'accepted' | 'declined'>>({});
+  const [activeFilter, setActiveFilter] = useState<'All' | 'Likes' | 'Comments' | 'Follows'>('All');
   const [message, setMessage] = useState('');
 
   async function loadNotifications() {
@@ -881,6 +884,15 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
   }
 
   const unreadCount = notifications.filter(item => !item.read_at).length;
+  const filterTypes: Record<typeof activeFilter, CreovaNotification['notification_type'][] | null> = {
+    All: null,
+    Likes: ['post_like'],
+    Comments: ['post_comment', 'comment_reply'],
+    Follows: ['follow_request', 'new_follower', 'follow_accepted'],
+  };
+  const filteredNotifications = activeFilter === 'All'
+    ? notifications
+    : notifications.filter(item => filterTypes[activeFilter]?.includes(item.notification_type));
 
   return <View style={styles.screenContent}>
     <View style={styles.notificationHeaderRow}>
@@ -898,9 +910,30 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
       </TouchableOpacity>
     </View>
     {!!message && <Text style={styles.notice}>{message}</Text>}
+    <View style={styles.notificationFilters}>
+      {(['All', 'Likes', 'Comments', 'Follows'] as const).map(filter => {
+        const count = filter === 'All'
+          ? notifications.length
+          : notifications.filter(item => filterTypes[filter]?.includes(item.notification_type)).length;
+        return (
+          <TouchableOpacity
+            key={filter}
+            onPress={() => setActiveFilter(filter)}
+            style={[styles.notificationFilterChip, activeFilter === filter && styles.notificationFilterChipActive]}
+            accessibilityRole="button"
+            accessibilityState={{ selected: activeFilter === filter }}
+          >
+            <Text style={[styles.notificationFilterText, activeFilter === filter && styles.notificationFilterTextActive]}>
+              {filter} <Text style={styles.notificationFilterCount}>{count}</Text>
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
     {loading && <EmptyState title="Loading notifications" description="Checking your latest CREOVA activity." />}
     {!loading && notifications.length === 0 && <EmptyState title="You’re all caught up" description="Likes, comments, replies, and new followers will show up here." />}
-    {!loading && notifications.map(item => {
+    {!loading && notifications.length > 0 && filteredNotifications.length === 0 && <EmptyState title={`No ${activeFilter.toLowerCase()} yet`} description="New activity in this category will appear here." />}
+    {!loading && filteredNotifications.map(item => {
       const handled = handledFollowRequests[item.id];
       const isFollowRequest = item.notification_type === 'follow_request' && !handled;
       return (
@@ -1406,6 +1439,12 @@ const styles = StyleSheet.create({
   navUnreadBadge: { position: 'absolute', top: -5, right: -12, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, overflow: 'hidden', backgroundColor: '#FF5578', color: '#FFFFFF', fontSize: 8, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
   notificationHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   notificationSubtitle: { color: COLORS.muted, fontSize: 10, marginTop: 5 },
+  notificationFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4, marginBottom: 4 },
+  notificationFilterChip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
+  notificationFilterChipActive: { backgroundColor: COLORS.accentSoft, borderColor: COLORS.blue },
+  notificationFilterText: { color: COLORS.muted, fontSize: 10, fontWeight: '800' },
+  notificationFilterTextActive: { color: '#C6DAFF' },
+  notificationFilterCount: { color: '#7890B4', fontSize: 9, fontWeight: '700' },
   notificationMarkAll: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C' },
   notificationMarkAllDisabled: { opacity: 0.45 },
   notificationMarkAllText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
