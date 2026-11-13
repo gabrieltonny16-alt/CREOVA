@@ -378,8 +378,8 @@ function PostDetailScreen({ postId, onBack }: { postId: string; onBack: () => vo
     const ownComment = comment.user_id === viewerId;
     const counts = reactionOptions.map(option => ({
       ...option,
-      count: comment.reactions.filter(item => item.reaction_type === option.type).length,
-      selected: comment.reactions.some(item => item.user_id === viewerId && item.reaction_type === option.type),
+      count: (comment.reactions ?? []).filter(item => item.reaction_type === option.type).length,
+      selected: (comment.reactions ?? []).some(item => item.user_id === viewerId && item.reaction_type === option.type),
     }));
     return <View key={comment.id} style={[styles.commentItem, isReply && styles.commentReply]}>
       <View style={styles.commentAvatar}>
