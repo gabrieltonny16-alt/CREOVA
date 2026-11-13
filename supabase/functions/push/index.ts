@@ -62,6 +62,13 @@ Deno.serve(async (request: Request) => {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
   }
+
+  // Supabase Database Webhooks send the project's service-role JWT in Authorization.
+  // A normal signed-in app user must never be able to spoof database webhook events.
+  const serviceRoleJwt = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!serviceRoleJwt || request.headers.get("Authorization") !== "Bearer " + serviceRoleJwt) {
+    return Response.json({ error: "Unauthorized webhook caller." }, { status: 401 });
+  }
   if (!expoAccessToken) {
     return Response.json({ error: "EXPO_ACCESS_TOKEN secret is not configured." }, { status: 503 });
   }
