@@ -18,6 +18,37 @@ Notifications.setNotificationHandler({
   }),
 });
 
+export type PushDeviceStatus = 'enabled' | 'disabled' | 'unsupported' | 'setup-required';
+
+export async function getThisDevicePushStatus(): Promise<PushDeviceStatus> {
+  if (Platform.OS === 'web' || !Device.isDevice || (Platform.OS !== 'android' && Platform.OS !== 'ios')) {
+    return 'unsupported';
+  }
+  const projectId = Constants.easConfig?.projectId ?? Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return 'setup-required';
+
+  const permission = await Notifications.getPermissionsAsync();
+  if (!permission.granted && permission.ios?.status !== Notifications.IosAuthorizationStatus.PROVISIONAL) {
+    return 'disabled';
+  }
+
+  const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId });
+  const { data: userData, error: userError } = await requireSupabase().auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) return 'disabled';
+
+  const { data, error } = await requireSupabase()
+    .from('user_push_tokens')
+    .select('id')
+    .eq('user_id', userData.user.id)
+    .eq('expo_push_token', tokenResult.data)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? 'enabled' : 'disabled';
+}
+
 export async function registerThisDeviceForPushNotifications(): Promise<PushRegistrationResult> {
   if (Platform.OS === 'web' || !Device.isDevice || (Platform.OS !== 'android' && Platform.OS !== 'ios')) {
     return { status: 'unsupported' };
