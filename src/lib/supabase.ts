@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // These are public client settings for CREOVA-DEV. They are safe to ship in the
 // app bundle; never put a Supabase service-role/secret key here.
-const supabaseUrl =
+export const supabaseUrl =
   process.env.EXPO_PUBLIC_SUPABASE_URL ?? 'https://dnbkxtqnojjsntxteuqu.supabase.co';
 const supabasePublishableKey =
   process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
