@@ -106,7 +106,8 @@ export function cancelActivePostMediaUpload(): boolean {
   return true;
 }
 
-async function uploadMediaResumably(
+// React Native tus-js-client retries within the active app session; its built-in URL storage is not available across app restarts.
+async function uploadMediaResumable(
   uri: string,
   objectPath: string,
   mimeType: string,
