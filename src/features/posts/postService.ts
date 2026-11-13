@@ -1,4 +1,5 @@
-import { requireSupabase } from '../../lib/supabase';
+import * as tus from 'tus-js-client';
+import { requireSupabase, supabaseUrl } from '../../lib/supabase';
 
 const MEDIA_BUCKET = 'creova-media';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -88,6 +89,89 @@ export async function createPost(input: {
   await insertPost(input);
 }
 
+type MediaUploadProgress = (percentage: number) => void;
+
+let activeTusUpload: tus.Upload | null = null;
+let rejectActiveTusUpload: ((error: Error) => void) | null = null;
+
+export function cancelActivePostMediaUpload(): boolean {
+  const upload = activeTusUpload;
+  const reject = rejectActiveTusUpload;
+  if (!upload || !reject) return false;
+  activeTusUpload = null;
+  rejectActiveTusUpload = null;
+  void upload.abort(true).catch(() => undefined);
+  reject(new Error('Upload cancelled.'));
+  return true;
+}
+
+async function uploadMediaResumably(
+  uri: string,
+  objectPath: string,
+  mimeType: string,
+  fileSize: number | null,
+  onProgress?: MediaUploadProgress,
+): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getSession();
+  if (authError) throw authError;
+  if (!auth.session?.access_token) throw new Error('Your session expired. Sign in again before uploading.');
+
+  const configuredUrl = new URL(supabaseUrl);
+  const storageHost = configuredUrl.hostname.endsWith('.supabase.co')
+    ? configuredUrl.hostname.replace('.supabase.co', '.storage.supabase.co')
+    : configuredUrl.hostname;
+  const endpoint = `https://${storageHost}/storage/v1/upload/resumable`;
+  const fileName = objectPath.split('/').pop() ?? 'creova-media';
+  const file = {
+    uri,
+    name: fileName,
+    type: mimeType,
+    ...(fileSize !== null ? { size: fileSize } : {}),
+  } as unknown as File;
+
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      activeTusUpload = null;
+      rejectActiveTusUpload = null;
+      if (error) reject(error);
+      else resolve();
+    };
+
+    const upload = new tus.Upload(file, {
+      endpoint,
+      chunkSize: 6 * 1024 * 1024,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: {
+        authorization: `Bearer ${auth.session.access_token}`,
+        apikey: client.supabaseKey,
+      },
+      uploadDataDuringCreation: true,
+      metadata: {
+        bucketName: MEDIA_BUCKET,
+        objectName: objectPath,
+        contentType: mimeType,
+        cacheControl: '3600',
+      },
+      onError: error => finish(error instanceof Error ? error : new Error(String(error))),
+      onProgress: (uploadedBytes, totalBytes) => {
+        if (totalBytes > 0) onProgress?.(Math.min(100, (uploadedBytes / totalBytes) * 100));
+      },
+      onSuccess: () => {
+        onProgress?.(100);
+        finish();
+      },
+    });
+
+    activeTusUpload = upload;
+    rejectActiveTusUpload = error => finish(error);
+    upload.start();
+  });
+}
+
 export type PostMediaInput = {
   uri: string;
   mimeType: string;
@@ -103,7 +187,7 @@ export async function createPostWithMedia(input: {
   postType?: CreovaFeedPost['post_type'];
   visibility?: CreovaFeedPost['visibility'];
   media: PostMediaInput;
-}): Promise<void> {
+}, onProgress?: MediaUploadProgress): Promise<void> {
   const client = requireSupabase();
   const mimeType = input.media.mimeType.toLowerCase();
   const isImage = input.media.mediaType === 'image';
@@ -134,36 +218,22 @@ export async function createPostWithMedia(input: {
   const objectPath = `${userId}/${postId}/${fileName}`;
 
   try {
-    const response = await fetch(input.media.uri);
-    if (!response.ok) throw new Error('Could not read the selected media from your device.');
-    const fileBody = await response.arrayBuffer();
-    if (fileBody.byteLength > maxBytes) {
-      throw new Error(isImage ? 'Choose an image smaller than 10 MB.' : 'Choose a video smaller than 50 MB.');
-    }
-
-    const { error: uploadError } = await client.storage.from(MEDIA_BUCKET).upload(objectPath, fileBody, {
-      contentType: mimeType,
-      cacheControl: '3600',
-      upsert: false,
-    });
-    if (uploadError) throw uploadError;
+    await uploadMediaResumably(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
 
     const { error: metadataError } = await client.from('post_media').insert({
       post_id: postId,
       object_path: objectPath,
       media_type: input.media.mediaType,
       mime_type: mimeType,
-      file_size_bytes: fileBody.byteLength,
+      file_size_bytes: input.media.fileSize,
       width: input.media.width || null,
       height: input.media.height || null,
       duration_seconds: input.media.durationSeconds,
       position: 0,
     });
-    if (metadataError) {
-      await client.storage.from(MEDIA_BUCKET).remove([objectPath]);
-      throw metadataError;
-    }
+    if (metadataError) throw metadataError;
   } catch (error) {
+    await client.storage.from(MEDIA_BUCKET).remove([objectPath]);
     await client.from('posts').delete().eq('id', postId);
     throw error;
   }
