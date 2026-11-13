@@ -26,6 +26,74 @@ export type CreovaNotification = {
   } | null;
 };
 
+export type CreovaNotificationPreferences = {
+  likes_enabled: boolean;
+  comments_enabled: boolean;
+  follows_enabled: boolean;
+  reposts_enabled: boolean;
+};
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: CreovaNotificationPreferences = {
+  likes_enabled: true,
+  comments_enabled: true,
+  follows_enabled: true,
+  reposts_enabled: true,
+};
+
+const NOTIFICATION_TYPES_BY_PREFERENCE: Record<keyof CreovaNotificationPreferences, CreovaNotificationType[]> = {
+  likes_enabled: ['post_like'],
+  comments_enabled: ['post_comment', 'comment_reply'],
+  follows_enabled: ['follow_request', 'new_follower', 'follow_accepted'],
+  reposts_enabled: ['post_repost'],
+};
+
+export async function getMyNotificationPreferences(): Promise<CreovaNotificationPreferences> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error('Sign in to manage notification preferences.');
+
+  const { data, error } = await client
+    .from('notification_preferences')
+    .select('likes_enabled, comments_enabled, follows_enabled, reposts_enabled')
+    .eq('user_id', userData.user.id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data
+    ? data as CreovaNotificationPreferences
+    : { ...DEFAULT_NOTIFICATION_PREFERENCES };
+}
+
+export async function saveMyNotificationPreferences(
+  preferences: CreovaNotificationPreferences,
+): Promise<CreovaNotificationPreferences> {
+  const client = requireSupabase();
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error('Sign in to manage notification preferences.');
+
+  const { data, error } = await client
+    .from('notification_preferences')
+    .upsert({
+      user_id: userData.user.id,
+      ...preferences,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' })
+    .select('likes_enabled, comments_enabled, follows_enabled, reposts_enabled')
+    .single();
+
+  if (error) throw error;
+  return data as CreovaNotificationPreferences;
+}
+
+async function getEnabledNotificationTypes(): Promise<CreovaNotificationType[]> {
+  const preferences = await getMyNotificationPreferences();
+  return (Object.keys(NOTIFICATION_TYPES_BY_PREFERENCE) as (keyof CreovaNotificationPreferences)[])
+    .filter(key => preferences[key])
+    .flatMap(key => NOTIFICATION_TYPES_BY_PREFERENCE[key]);
+}
+
 const NOTIFICATION_SELECT = [
   'id',
   'recipient_id',
@@ -43,11 +111,14 @@ export async function getMyNotifications(limit = 60): Promise<CreovaNotification
   const { data: userData, error: userError } = await client.auth.getUser();
   if (userError) throw userError;
   if (!userData.user) throw new Error('Sign in to view your notifications.');
+  const enabledTypes = await getEnabledNotificationTypes();
+  if (enabledTypes.length === 0) return [];
 
   const { data, error } = await client
     .from('notifications')
     .select(NOTIFICATION_SELECT)
     .eq('recipient_id', userData.user.id)
+    .in('notification_type', enabledTypes)
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
 
@@ -61,10 +132,14 @@ export async function getUnreadNotificationCount(): Promise<number> {
   if (userError) throw userError;
   if (!userData.user) return 0;
 
+  const enabledTypes = await getEnabledNotificationTypes();
+  if (enabledTypes.length === 0) return 0;
+
   const { count, error } = await client
     .from('notifications')
     .select('id', { count: 'exact', head: true })
     .eq('recipient_id', userData.user.id)
+    .in('notification_type', enabledTypes)
     .is('read_at', null);
 
   if (error) throw error;
