@@ -7,8 +7,8 @@ import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
-import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications } from './src/features/notifications/notificationService';
-import type { CreovaNotification } from './src/features/notifications/notificationService';
+import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications, getMyNotificationPreferences, saveMyNotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from './src/features/notifications/notificationService';
+import type { CreovaNotification, CreovaNotificationPreferences } from './src/features/notifications/notificationService';
 import {
   SafeAreaView,
   ScrollView,
@@ -998,6 +998,9 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
   const [loadingConnections, setLoadingConnections] = useState(false);
   const [profilePosts, setProfilePosts] = useState<Awaited<ReturnType<typeof getProfilePosts>>>([]);
   const [postsLoading, setPostsLoading] = useState(true);
+  const [notificationPreferences, setNotificationPreferences] = useState<CreovaNotificationPreferences>({ ...DEFAULT_NOTIFICATION_PREFERENCES });
+  const [preferencesLoading, setPreferencesLoading] = useState(true);
+  const [savingPreference, setSavingPreference] = useState(false);
 
   async function openOwnConnections(type: 'followers' | 'following') {
     if (!profile) return;
@@ -1015,6 +1018,13 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
 
   useEffect(() => {
     let active = true;
+    getMyNotificationPreferences().then(value => {
+      if (active) setNotificationPreferences(value);
+    }).catch(preferencesError => {
+      if (active) setNotice(preferencesError instanceof Error ? preferencesError.message : 'Could not load notification preferences.');
+    }).finally(() => {
+      if (active) setPreferencesLoading(false);
+    });
     getMyProfile().then(value => {
       if (!active) return;
       setProfile(value);
@@ -1091,6 +1101,28 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
     }
   }
 
+  async function updateNotificationPreference(
+    key: keyof CreovaNotificationPreferences,
+    value: boolean,
+  ) {
+    if (savingPreference) return;
+    const previous = notificationPreferences;
+    const next = { ...previous, [key]: value };
+    setNotificationPreferences(next);
+    setSavingPreference(true);
+    setNotice('');
+    try {
+      const saved = await saveMyNotificationPreferences(next);
+      setNotificationPreferences(saved);
+      setNotice('Notification preferences saved.');
+    } catch (e) {
+      setNotificationPreferences(previous);
+      setNotice(e instanceof Error ? e.message : 'Could not save notification preferences.');
+    } finally {
+      setSavingPreference(false);
+    }
+  }
+
   async function signOut() {
     await supabase?.auth.signOut();
   }
@@ -1149,8 +1181,37 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
       </View> : <TouchableOpacity onPress={() => { setNotice(''); setEditing(true); }} style={styles.signOutButton}>
         <Text style={styles.signOutText}>Edit profile</Text>
       </TouchableOpacity>}
+      <View style={styles.notificationPreferencesCard}>
+        <View style={styles.notificationPreferencesHeading}>
+          <Text style={styles.subheading}>Notification preferences</Text>
+          <Text style={styles.privacyHint}>Choose which in-app activity alerts appear in your Inbox.</Text>
+        </View>
+        {preferencesLoading
+          ? <Text style={styles.privacyHint}>Loading preferences…</Text>
+          : ([
+              { key: 'likes_enabled', title: 'Likes', description: 'When someone likes your posts' },
+              { key: 'comments_enabled', title: 'Comments and replies', description: 'When someone comments or replies to you' },
+              { key: 'follows_enabled', title: 'Follows', description: 'Follow requests, new followers and accepted requests' },
+              { key: 'reposts_enabled', title: 'Reposts', description: 'When someone reposts your content' },
+            ] as { key: keyof CreovaNotificationPreferences; title: string; description: string }[]).map(item => (
+              <View key={item.key} style={styles.notificationPreferenceRow}>
+                <View style={styles.notificationPreferenceCopy}>
+                  <Text style={styles.notificationPreferenceTitle}>{item.title}</Text>
+                  <Text style={styles.privacyHint}>{item.description}</Text>
+                </View>
+                <Switch
+                  value={notificationPreferences[item.key]}
+                  onValueChange={value => updateNotificationPreference(item.key, value)}
+                  disabled={savingPreference || preferencesLoading}
+                  trackColor={{ false: '#34445F', true: '#3985FF' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            ))}
+        {savingPreference && <Text style={styles.privacyHint}>Saving your choice…</Text>}
+      </View>
       <View style={styles.profilePostsSection}>
-        <Text style={styles.subheading}>Your posts</Text>
+        <Text style={styles.subheading}>Your posts</text>
         <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
       </View>
       <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
@@ -1439,6 +1500,11 @@ const styles = StyleSheet.create({
   navUnreadBadge: { position: 'absolute', top: -5, right: -12, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, overflow: 'hidden', backgroundColor: '#FF5578', color: '#FFFFFF', fontSize: 8, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
   notificationHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   notificationSubtitle: { color: COLORS.muted, fontSize: 10, marginTop: 5 },
+  notificationPreferencesCard: { width: '100%', marginTop: 18, padding: 15, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 12 },
+  notificationPreferencesHeading: { gap: 5, paddingBottom: 4 },
+  notificationPreferenceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#202E45' },
+  notificationPreferenceCopy: { flex: 1, gap: 4 },
+  notificationPreferenceTitle: { color: COLORS.text, fontSize: 12, fontWeight: '800' },
   notificationFilters: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4, marginBottom: 4 },
   notificationFilterChip: { paddingHorizontal: 13, paddingVertical: 9, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   notificationFilterChipActive: { backgroundColor: COLORS.accentSoft, borderColor: COLORS.blue },
