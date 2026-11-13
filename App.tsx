@@ -9,6 +9,7 @@ import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from '.
 import { supabase } from './src/lib/supabase';
 import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications, getMyNotificationPreferences, saveMyNotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from './src/features/notifications/notificationService';
 import type { CreovaNotification, CreovaNotificationPreferences } from './src/features/notifications/notificationService';
+import { getThisDevicePushStatus, registerThisDeviceForPushNotifications, disableThisDevicePushNotifications, addPushNotificationResponseListener, getInitialPushNotificationResponse } from './src/features/notifications/pushNotificationService';
 import {
   SafeAreaView,
   ScrollView,
@@ -1001,6 +1002,8 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
   const [notificationPreferences, setNotificationPreferences] = useState<CreovaNotificationPreferences>({ ...DEFAULT_NOTIFICATION_PREFERENCES });
   const [preferencesLoading, setPreferencesLoading] = useState(true);
   const [savingPreference, setSavingPreference] = useState(false);
+  const [pushStatus, setPushStatus] = useState<'checking' | 'enabled' | 'disabled' | 'unsupported' | 'setup-required'>('checking');
+  const [pushBusy, setPushBusy] = useState(false);
 
   async function openOwnConnections(type: 'followers' | 'following') {
     if (!profile) return;
@@ -1046,6 +1049,45 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
     });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    getThisDevicePushStatus().then(status => {
+      if (active) setPushStatus(status);
+    }).catch(() => {
+      if (active) setPushStatus('disabled');
+    });
+    return () => { active = false; };
+  }, []);
+
+  async function togglePushNotifications() {
+    if (pushBusy || pushStatus === 'checking' || pushStatus === 'unsupported' || pushStatus === 'setup-required') return;
+    setPushBusy(true);
+    setNotice('');
+    try {
+      if (pushStatus === 'enabled') {
+        await disableThisDevicePushNotifications();
+        setPushStatus('disabled');
+        setNotice('Push notifications are disabled on this device.');
+      } else {
+        const result = await registerThisDeviceForPushNotifications();
+        if (result.status === 'registered') {
+          setPushStatus('enabled');
+          setNotice('Push notifications are enabled on this device.');
+        } else if (result.status === 'permission-denied') {
+          setPushStatus('disabled');
+          setNotice('Notification permission was not granted. You can enable it in your device settings.');
+        } else {
+          setPushStatus('unsupported');
+          setNotice('Push notifications require a supported physical device.');
+        }
+      }
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not update push notification settings.');
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   async function chooseAvatar() {
     setNotice('');
@@ -1210,6 +1252,27 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
             ))}
         {savingPreference && <Text style={styles.privacyHint}>Saving your choice…</Text>}
       </View>
+      <View style={styles.notificationPreferencesCard}>
+        <View style={styles.notificationPreferencesHeading}>
+          <Text style={styles.subheading}>Push notifications</Text>
+          <Text style={styles.privacyHint}>Receive CREOVA activity alerts when the app is closed.</Text>
+        </View>
+        {pushStatus === 'checking'
+          ? <Text style={styles.privacyHint}>Checking this device…</Text>
+          : pushStatus === 'setup-required'
+            ? <Text style={styles.privacyHint}>Expo project linking is required before this device can register for push alerts.</Text>
+            : pushStatus === 'unsupported'
+              ? <Text style={styles.privacyHint}>Push alerts are available on supported physical Android and iOS devices.</Text>
+              : <TouchableOpacity
+                  onPress={togglePushNotifications}
+                  disabled={pushBusy}
+                  style={styles.pushNotificationButton}
+                >
+                  <Text style={styles.pushNotificationButtonText}>
+                    {pushBusy ? 'Updating…' : pushStatus === 'enabled' ? 'Disable on this device' : 'Enable on this device'}
+                  </Text>
+                </TouchableOpacity>}
+      </View>
       <View style={styles.profilePostsSection}>
         <Text style={styles.subheading}>Your posts</text>
         <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
@@ -1227,6 +1290,43 @@ function MainApp() {
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
+
+  function handlePushNotificationData(data: Record<string, unknown>) {
+    const notificationId = typeof data.notificationId === 'string' ? data.notificationId : null;
+    if (notificationId) void markNotificationRead(notificationId).catch(() => undefined);
+
+    if (data.notificationType === 'follow_request') {
+      setSelectedPostId(null);
+      setSelectedProfileUsername(null);
+      setActiveTab('Inbox');
+      return;
+    }
+
+    const postId = typeof data.postId === 'string' ? data.postId : null;
+    if (postId) {
+      setSelectedProfileUsername(null);
+      setSelectedPostId(postId);
+      setActiveTab('Home');
+      return;
+    }
+
+    const actorUsername = typeof data.actorUsername === 'string' ? data.actorUsername : null;
+    if (actorUsername) {
+      setSelectedPostId(null);
+      setSelectedProfileUsername(actorUsername);
+      setActiveTab('Discover');
+    } else {
+      setActiveTab('Inbox');
+    }
+  }
+
+  useEffect(() => {
+    const subscription = addPushNotificationResponseListener(handlePushNotificationData);
+    getInitialPushNotificationResponse().then(data => {
+      if (data) handlePushNotificationData(data);
+    }).catch(() => undefined);
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1500,6 +1600,8 @@ const styles = StyleSheet.create({
   navUnreadBadge: { position: 'absolute', top: -5, right: -12, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, overflow: 'hidden', backgroundColor: '#FF5578', color: '#FFFFFF', fontSize: 8, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
   notificationHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   notificationSubtitle: { color: COLORS.muted, fontSize: 10, marginTop: 5 },
+  pushNotificationButton: { alignSelf: 'flex-start', minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 11, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C' },
+  pushNotificationButtonText: { color: '#A7C6FF', fontSize: 11, fontWeight: '800' },
   notificationPreferencesCard: { width: '100%', marginTop: 18, padding: 15, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 12 },
   notificationPreferencesHeading: { gap: 5, paddingBottom: 4 },
   notificationPreferenceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#202E45' },
