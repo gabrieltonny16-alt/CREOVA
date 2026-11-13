@@ -92,9 +92,19 @@ export async function unfollowProfile(targetUserId: string): Promise<void> {
 
 export async function respondToFollowRequest(followerId: string, accept: boolean): Promise<void> {
   const client = requireSupabase();
-  const { error } = await client.from('user_follows').update({ status: accept ? 'accepted' : 'rejected' })
-    .eq('follower_id', followerId).eq('status', 'pending');
+  const { data: userData, error: userError } = await client.auth.getUser();
+  if (userError) throw userError;
+  if (!userData.user) throw new Error('You must be signed in.');
+
+  const { data, error } = await client.from('user_follows')
+    .update({ status: accept ? 'accepted' : 'rejected', updated_at: new Date().toISOString() })
+    .eq('follower_id', followerId)
+    .eq('following_id', userData.user.id)
+    .eq('status', 'pending')
+    .select('follower_id');
+
   if (error) throw error;
+  if (!data?.length) throw new Error('This follow request is no longer pending.');
 }
 
 
