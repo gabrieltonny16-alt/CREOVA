@@ -4,7 +4,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithMedia, getHomeFeed, getProfilePosts, getPostById, togglePostLike } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike } from './src/features/posts/postService';
 import type { CreovaFeedPost } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import {
@@ -447,6 +447,7 @@ function CreateScreen() {
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
   const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [publishing, setPublishing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [notice, setNotice] = useState('');
 
   async function chooseImage() {
@@ -490,6 +491,7 @@ function CreateScreen() {
       return;
     }
     setPublishing(true);
+    setUploadProgress(0);
     setNotice('');
     try {
       if (selectedMedia) {
@@ -508,7 +510,7 @@ function CreateScreen() {
               ? selectedMedia.duration / 1000
               : null,
           },
-        });
+        }, setUploadProgress);
       } else {
         await createPost({ caption, postType, visibility });
       }
@@ -519,6 +521,7 @@ function CreateScreen() {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
     } finally {
       setPublishing(false);
+      setUploadProgress(0);
     }
   }
 
@@ -567,8 +570,17 @@ function CreateScreen() {
         ))}
       </View>
       <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedMedia)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedMedia)) && styles.publishButtonDisabled]}>
-        <Text style={styles.publishButtonText}>{publishing ? 'Publishing…' : 'Publish post'}</Text>
+        <Text style={styles.publishButtonText}>{publishing ? (selectedMedia ? 'Uploading media…' : 'Publishing…') : 'Publish post'}</Text>
       </TouchableOpacity>
+      {publishing && selectedMedia && <View style={styles.uploadProgressWrap}>
+        <View style={styles.uploadProgressTrack}>
+          <View style={[styles.uploadProgressFill, { width: `${Math.round(uploadProgress)}%` }]} />
+        </View>
+        <Text style={styles.uploadProgressText}>{Math.round(uploadProgress)}% uploaded · automatic retries enabled</Text>
+        <TouchableOpacity onPress={cancelActivePostMediaUpload} style={styles.cancelUploadButton}>
+          <Text style={styles.cancelUploadText}>Cancel upload</Text>
+        </TouchableOpacity>
+      </View>}
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
     <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
@@ -910,6 +922,12 @@ const styles = StyleSheet.create({
   publishButton: { minHeight: 46, borderRadius: 12, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   publishButtonDisabled: { opacity: 0.45 },
   publishButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  uploadProgressWrap: { gap: 8, paddingTop: 3 },
+  uploadProgressTrack: { height: 7, borderRadius: 5, overflow: 'hidden', backgroundColor: '#263650' },
+  uploadProgressFill: { height: '100%', borderRadius: 5, backgroundColor: COLORS.blue },
+  uploadProgressText: { color: COLORS.muted, fontSize: 10 },
+  cancelUploadButton: { alignSelf: 'flex-start', paddingVertical: 5, paddingHorizontal: 3 },
+  cancelUploadText: { color: '#FF91A9', fontSize: 11, fontWeight: '700' },
   profileCard: { alignItems: 'center', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 9 },
   avatar: { width: 76, height: 76, borderRadius: 28, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#4268A4', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#A7C6FF', fontSize: 36, fontWeight: '900' },
