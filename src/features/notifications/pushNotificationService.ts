@@ -124,6 +124,7 @@ export function addPushNotificationResponseListener(
   return Notifications.addNotificationResponseReceivedListener(response => {
     const data = response.notification.request.content.data;
     onResponse(data && typeof data === 'object' ? data as Record<string, unknown> : {});
+    void Notifications.clearLastNotificationResponseAsync().catch(() => undefined);
   });
 }
 
@@ -131,5 +132,6 @@ export async function getInitialPushNotificationResponse(): Promise<Record<strin
   const response = await Notifications.getLastNotificationResponseAsync();
   if (!response) return null;
   const data = response.notification.request.content.data;
+  await Notifications.clearLastNotificationResponseAsync();
   return data && typeof data === 'object' ? data as Record<string, unknown> : {};
 }
