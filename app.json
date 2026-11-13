@@ -36,6 +36,11 @@
         }
       ]
     ],
-    "icon": "./assets/brand/creova-icon.png"
+    "icon": "./assets/brand/creova-icon.png",
+    "extra": {
+      "eas": {
+        "projectId": "bbd104ac-2926-4f36-93f2-4f4aa335c046"
+      }
+    }
   }
 }
