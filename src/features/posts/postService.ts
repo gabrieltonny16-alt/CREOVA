@@ -221,7 +221,8 @@ export async function createPostWithMedia(input: {
   const objectPath = `${userId}/${postId}/${fileName}`;
 
   try {
-    const uploadedBytes = await uploadMediaResumably(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
+    const uploadedBytes = await uploadMediaResumable(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
+    if (uploadedBytes <= 0) throw new Error('Could not determine the selected media size. Please choose the file again.');
 
     const { error: metadataError } = await client.from('post_media').insert({
       post_id: postId,
