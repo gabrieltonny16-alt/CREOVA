@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
-import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar } from './src/features/profile/profileService';
+import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar, respondToFollowRequest } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from './src/features/posts/postService';
@@ -496,6 +496,8 @@ function PublicProfileScreen({ username, onBack, onOpenProfile, onOpenPost }: {
   const [connectionType, setConnectionType] = useState<'followers' | 'following' | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [busyFollowRequest, setBusyFollowRequest] = useState('');
+  const [handledFollowRequests, setHandledFollowRequests] = useState<Record<string, 'accepted' | 'declined'>>({});
   const [message, setMessage] = useState('');
 
   async function loadProfile() {
@@ -822,6 +824,29 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
     }
   }
 
+  async function handleFollowRequest(notification: CreovaNotification, accept: boolean) {
+    if (busyFollowRequest) return;
+    setBusyFollowRequest(notification.id);
+    setMessage('');
+    try {
+      await respondToFollowRequest(notification.actor_id, accept);
+      await markNotificationRead(notification.id);
+      setHandledFollowRequests(current => ({
+        ...current,
+        [notification.id]: accept ? 'accepted' : 'declined',
+      }));
+      setNotifications(items => items.map(item => item.id === notification.id
+        ? { ...item, read_at: new Date().toISOString() }
+        : item));
+      const remainingUnread = notifications.filter(item => !item.read_at && item.id !== notification.id).length;
+      onUnreadCountChange(remainingUnread);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not respond to this follow request.');
+    } finally {
+      setBusyFollowRequest('');
+    }
+  }
+
   async function openNotification(notification: CreovaNotification) {
     if (!notification.read_at) {
       try {
@@ -875,29 +900,52 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
     {!!message && <Text style={styles.notice}>{message}</Text>}
     {loading && <EmptyState title="Loading notifications" description="Checking your latest CREOVA activity." />}
     {!loading && notifications.length === 0 && <EmptyState title="You’re all caught up" description="Likes, comments, replies, and new followers will show up here." />}
-    {!loading && notifications.map(item => (
-      <TouchableOpacity
-        key={item.id}
-        onPress={() => openNotification(item)}
-        style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread]}
-        accessibilityRole="button"
-        accessibilityLabel={`${item.actor?.display_name || 'A CREOVA member'} ${notificationMessage(item)}`}
-      >
-        <View style={styles.notificationAvatar}>
-          {item.actor?.avatar_url
-            ? <Image source={{ uri: item.actor.avatar_url }} style={styles.notificationAvatarImage} />
-            : <Text style={styles.notificationAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+    {!loading && notifications.map(item => {
+      const handled = handledFollowRequests[item.id];
+      const isFollowRequest = item.notification_type === 'follow_request' && !handled;
+      return (
+        <View key={item.id} style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread]}>
+          <TouchableOpacity
+            onPress={() => openNotification(item)}
+            style={styles.notificationMainTap}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.actor?.display_name || 'A CREOVA member'} ${notificationMessage(item)}`}
+          >
+            <View style={styles.notificationAvatar}>
+              {item.actor?.avatar_url
+                ? <Image source={{ uri: item.actor.avatar_url }} style={styles.notificationAvatarImage} />
+                : <Text style={styles.notificationAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+            </View>
+            <View style={styles.notificationContent}>
+              <Text style={styles.notificationActorLine}>
+                <Text style={styles.notificationActor}>{item.actor?.display_name || 'A CREOVA member'}</Text>
+                {' '}{handled ? (handled === 'accepted' ? 'follow request accepted' : 'follow request declined') : notificationMessage(item)}
+              </Text>
+              <Text style={styles.notificationTime}>{new Date(item.created_at).toLocaleString()}</Text>
+            </View>
+            {!item.read_at && <View style={styles.notificationUnreadDot} />}
+          </TouchableOpacity>
+          {isFollowRequest && (
+            <View style={styles.followRequestActions}>
+              <TouchableOpacity
+                onPress={() => handleFollowRequest(item, true)}
+                disabled={!!busyFollowRequest}
+                style={[styles.followAcceptButton, !!busyFollowRequest && styles.notificationMarkAllDisabled]}
+              >
+                <Text style={styles.followAcceptText}>{busyFollowRequest === item.id ? 'Please wait…' : 'Accept'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleFollowRequest(item, false)}
+                disabled={!!busyFollowRequest}
+                style={[styles.followDeclineButton, !!busyFollowRequest && styles.notificationMarkAllDisabled]}
+              >
+                <Text style={styles.followDeclineText}>Decline</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
-        <View style={styles.notificationContent}>
-          <Text style={styles.notificationActorLine}>
-            <Text style={styles.notificationActor}>{item.actor?.display_name || 'A CREOVA member'}</Text>
-            {' '}{notificationMessage(item)}
-          </Text>
-          <Text style={styles.notificationTime}>{new Date(item.created_at).toLocaleString()}</Text>
-        </View>
-        {!item.read_at && <View style={styles.notificationUnreadDot} />}
-      </TouchableOpacity>
-    ))}
+      );
+    })}
   </View>;
 }
 
@@ -1370,7 +1418,13 @@ const styles = StyleSheet.create({
   notificationActorLine: { color: COLORS.muted, fontSize: 11, lineHeight: 17 },
   notificationActor: { color: COLORS.text, fontWeight: '900' },
   notificationTime: { color: COLORS.muted, fontSize: 9 },
-  notificationUnreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.blue }
+  notificationUnreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.blue },
+  notificationMainTap: { flexDirection: 'row', alignItems: 'center', gap: 11, flex: 1 },
+  followRequestActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, paddingLeft: 53, paddingTop: 9 },
+  followAcceptButton: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 9, backgroundColor: COLORS.blue },
+  followAcceptText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+  followDeclineButton: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 9, backgroundColor: COLORS.surfaceRaised, borderWidth: 1, borderColor: COLORS.border },
+  followDeclineText: { color: COLORS.muted, fontSize: 10, fontWeight: '800' }
 });
 
 
