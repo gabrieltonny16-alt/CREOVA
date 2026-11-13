@@ -1,4 +1,5 @@
 import * as tus from 'tus-js-client';
+import { Platform } from 'react-native';
 import { requireSupabase, supabaseUrl } from '../../lib/supabase';
 
 const MEDIA_BUCKET = 'creova-media';
@@ -111,7 +112,7 @@ async function uploadMediaResumably(
   mimeType: string,
   fileSize: number | null,
   onProgress?: MediaUploadProgress,
-): Promise<void> {
+): Promise<number> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getSession();
   if (authError) throw authError;
@@ -123,14 +124,12 @@ async function uploadMediaResumably(
     : configuredUrl.hostname;
   const endpoint = `https://${storageHost}/storage/v1/upload/resumable`;
   const fileName = objectPath.split('/').pop() ?? 'creova-media';
-  const file = {
-    uri,
-    name: fileName,
-    type: mimeType,
-    ...(fileSize !== null ? { size: fileSize } : {}),
-  } as unknown as File;
+  const file = Platform.OS === 'web'
+    ? await (await fetch(uri)).blob()
+    : ({ uri, name: fileName, type: mimeType, ...(fileSize !== null ? { size: fileSize } : {}) } as unknown as File);
 
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<number>((resolve, reject) => {
+    let totalBytes = fileSize ?? 0;
     let settled = false;
     const finish = (error?: Error) => {
       if (settled) return;
@@ -138,7 +137,7 @@ async function uploadMediaResumably(
       activeTusUpload = null;
       rejectActiveTusUpload = null;
       if (error) reject(error);
-      else resolve();
+      else resolve(totalBytes);
     };
 
     const upload = new tus.Upload(file, {
@@ -157,8 +156,11 @@ async function uploadMediaResumably(
         cacheControl: '3600',
       },
       onError: error => finish(error instanceof Error ? error : new Error(String(error))),
-      onProgress: (uploadedBytes, totalBytes) => {
-        if (totalBytes > 0) onProgress?.(Math.min(100, (uploadedBytes / totalBytes) * 100));
+      onProgress: (uploadedBytes, total) => {
+        if (total > 0) {
+          totalBytes = total;
+          onProgress?.(Math.min(100, (uploadedBytes / total) * 100));
+        }
       },
       onSuccess: () => {
         onProgress?.(100);
@@ -218,14 +220,14 @@ export async function createPostWithMedia(input: {
   const objectPath = `${userId}/${postId}/${fileName}`;
 
   try {
-    await uploadMediaResumably(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
+    const uploadedBytes = await uploadMediaResumably(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
 
     const { error: metadataError } = await client.from('post_media').insert({
       post_id: postId,
       object_path: objectPath,
       media_type: input.media.mediaType,
       mime_type: mimeType,
-      file_size_bytes: input.media.fileSize,
+      file_size_bytes: uploadedBytes,
       width: input.media.width || null,
       height: input.media.height || null,
       duration_seconds: input.media.durationSeconds,
