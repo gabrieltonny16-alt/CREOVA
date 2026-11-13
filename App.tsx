@@ -7,6 +7,8 @@ import type { CreovaProfile } from './src/features/profile/profileService';
 import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
+import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications } from './src/features/notifications/notificationService';
+import type { CreovaNotification } from './src/features/notifications/notificationService';
 import {
   SafeAreaView,
   ScrollView,
@@ -759,11 +761,143 @@ function CreateScreen() {
     <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
-function InboxScreen() {
+function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
+  onOpenProfile: (username: string) => void;
+  onOpenPost: (postId: string) => void;
+  onUnreadCountChange: (count: number) => void;
+}) {
+  const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  async function loadNotifications() {
+    try {
+      const [items, unreadCount] = await Promise.all([
+        getMyNotifications(),
+        getUnreadNotificationCount(),
+      ]);
+      setNotifications(items);
+      onUnreadCountChange(unreadCount);
+      setMessage('');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load notifications.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    let channel: ReturnType<typeof subscribeToMyNotifications> | null = null;
+    async function start() {
+      await loadNotifications();
+      if (!active || !supabase) return;
+      const { data } = await supabase.auth.getUser();
+      if (!active || !data.user) return;
+      channel = subscribeToMyNotifications(data.user.id, () => {
+        void loadNotifications();
+      });
+    }
+    void start();
+    return () => {
+      active = false;
+      if (channel && supabase) void supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function markAllRead() {
+    if (busy || notifications.every(item => !!item.read_at)) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await markAllNotificationsRead();
+      const readAt = new Date().toISOString();
+      setNotifications(items => items.map(item => ({ ...item, read_at: item.read_at ?? readAt })));
+      onUnreadCountChange(0);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not mark notifications as read.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openNotification(notification: CreovaNotification) {
+    if (!notification.read_at) {
+      try {
+        await markNotificationRead(notification.id);
+        setNotifications(items => items.map(item => item.id === notification.id
+          ? { ...item, read_at: new Date().toISOString() }
+          : item));
+        onUnreadCountChange(Math.max(0, notifications.filter(item => !item.read_at).length - 1));
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Could not update this notification.');
+        return;
+      }
+    }
+    if (notification.post_id) {
+      onOpenPost(notification.post_id);
+    } else if (notification.actor?.username) {
+      onOpenProfile(notification.actor.username);
+    }
+  }
+
+  function notificationMessage(item: CreovaNotification) {
+    switch (item.notification_type) {
+      case 'follow_request': return 'requested to follow you';
+      case 'new_follower': return 'started following you';
+      case 'follow_accepted': return 'accepted your follow request';
+      case 'post_like': return 'liked your post';
+      case 'post_comment': return 'commented on your post';
+      case 'comment_reply': return 'replied to a comment';
+      case 'post_repost': return 'reposted your post';
+      default: return 'interacted with you';
+    }
+  }
+
+  const unreadCount = notifications.filter(item => !item.read_at).length;
+
   return <View style={styles.screenContent}>
-    <Text style={styles.eyebrow}>STAY IN THE LOOP</Text>
-    <Text style={styles.heading}>Inbox</Text>
-    <EmptyState title="Your conversations will appear here" description="Private and group messaging will be connected after the conversation service, privacy rules, and real-time delivery are implemented." />
+    <View style={styles.notificationHeaderRow}>
+      <View>
+        <Text style={styles.eyebrow}>YOUR ACTIVITY</Text>
+        <Text style={styles.heading}>Notifications</Text>
+        <Text style={styles.notificationSubtitle}>{unreadCount} unread</Text>
+      </View>
+      <TouchableOpacity
+        onPress={markAllRead}
+        disabled={busy || unreadCount === 0}
+        style={[styles.notificationMarkAll, (busy || unreadCount === 0) && styles.notificationMarkAllDisabled]}
+      >
+        <Text style={styles.notificationMarkAllText}>{busy ? 'Updating…' : 'Mark all read'}</Text>
+      </TouchableOpacity>
+    </View>
+    {!!message && <Text style={styles.notice}>{message}</Text>}
+    {loading && <EmptyState title="Loading notifications" description="Checking your latest CREOVA activity." />}
+    {!loading && notifications.length === 0 && <EmptyState title="You’re all caught up" description="Likes, comments, replies, and new followers will show up here." />}
+    {!loading && notifications.map(item => (
+      <TouchableOpacity
+        key={item.id}
+        onPress={() => openNotification(item)}
+        style={[styles.notificationCard, !item.read_at && styles.notificationCardUnread]}
+        accessibilityRole="button"
+        accessibilityLabel={`${item.actor?.display_name || 'A CREOVA member'} ${notificationMessage(item)}`}
+      >
+        <View style={styles.notificationAvatar}>
+          {item.actor?.avatar_url
+            ? <Image source={{ uri: item.actor.avatar_url }} style={styles.notificationAvatarImage} />
+            : <Text style={styles.notificationAvatarText}>{(item.actor?.display_name || item.actor?.username || 'C').slice(0, 1).toUpperCase()}</Text>}
+        </View>
+        <View style={styles.notificationContent}>
+          <Text style={styles.notificationActorLine}>
+            <Text style={styles.notificationActor}>{item.actor?.display_name || 'A CREOVA member'}</Text>
+            {' '}{notificationMessage(item)}
+          </Text>
+          <Text style={styles.notificationTime}>{new Date(item.created_at).toLocaleString()}</Text>
+        </View>
+        {!item.read_at && <View style={styles.notificationUnreadDot} />}
+      </TouchableOpacity>
+    ))}
   </View>;
 }
 
@@ -948,8 +1082,35 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<Tab>('Home');
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
+
+  useEffect(() => {
+    let active = true;
+    let channel: ReturnType<typeof subscribeToMyNotifications> | null = null;
+    async function startNotifications() {
+      if (!supabase) return;
+      const { data } = await supabase.auth.getUser();
+      if (!active || !data.user) return;
+      try {
+        setUnreadNotificationCount(await getUnreadNotificationCount());
+      } catch {
+        if (active) setUnreadNotificationCount(0);
+      }
+      if (!active) return;
+      channel = subscribeToMyNotifications(data.user.id, () => {
+        void getUnreadNotificationCount().then(count => {
+          if (active) setUnreadNotificationCount(count);
+        }).catch(() => undefined);
+      });
+    }
+    void startNotifications();
+    return () => {
+      active = false;
+      if (channel && supabase) void supabase.removeChannel(channel);
+    };
+  }, []);
 
   const openProfile = (username: string) => {
     setSelectedProfileUsername(username);
@@ -971,7 +1132,7 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenProfile={openProfile} />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen />;
+      case 'Inbox': return <InboxScreen onOpenProfile={openProfile} onOpenPost={setSelectedPostId} onUnreadCountChange={setUnreadNotificationCount} />;
       case 'Profile': return <ProfileScreen onOpenPost={setSelectedPostId} />;
       default: return <HomeScreen />;
     }
@@ -989,7 +1150,10 @@ function MainApp() {
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
             {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
-              <Text style={[styles.sideNavSymbol, activeTab === tab.key && styles.activeText]}>{tab.symbol}</Text>
+              <View style={styles.navIconWrap}>
+                <Text style={[styles.sideNavSymbol, activeTab === tab.key && styles.activeText]}>{tab.symbol}</Text>
+                {tab.key === 'Inbox' && unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
+              </View>
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
@@ -999,7 +1163,10 @@ function MainApp() {
         </View>
         {!isWide && <View style={styles.bottomNav}>
           {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
-            <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
+            <View style={styles.navIconWrap}>
+              <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
+              {tab.key === 'Inbox' && unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
+            </View>
             <Text style={[styles.bottomNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
           </TouchableOpacity>)}
         </View>}
@@ -1186,7 +1353,24 @@ const styles = StyleSheet.create({
   privacyHint: { color: COLORS.muted, fontSize: 10 },
   signOutButton: { borderWidth: 1, borderColor: COLORS.border, borderRadius: 11, paddingHorizontal: 16, paddingVertical: 10, marginTop: 8 },
   signOutText: { color: COLORS.text, fontSize: 11, fontWeight: '700' },
-  bottomNavLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600' }
+  bottomNavLabel: { color: COLORS.muted, fontSize: 9, fontWeight: '600' },
+  navIconWrap: { position: 'relative', minWidth: 27, alignItems: 'center', justifyContent: 'center' },
+  navUnreadBadge: { position: 'absolute', top: -5, right: -12, minWidth: 16, height: 16, paddingHorizontal: 4, borderRadius: 8, overflow: 'hidden', backgroundColor: '#FF5578', color: '#FFFFFF', fontSize: 8, lineHeight: 16, fontWeight: '900', textAlign: 'center' },
+  notificationHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  notificationSubtitle: { color: COLORS.muted, fontSize: 10, marginTop: 5 },
+  notificationMarkAll: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: COLORS.accentSoft, borderWidth: 1, borderColor: '#355B9C' },
+  notificationMarkAllDisabled: { opacity: 0.45 },
+  notificationMarkAllText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
+  notificationCard: { flexDirection: 'row', alignItems: 'center', gap: 11, padding: 12, borderRadius: 15, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
+  notificationCardUnread: { borderColor: '#4268A4', backgroundColor: '#12213A' },
+  notificationAvatar: { width: 42, height: 42, borderRadius: 15, backgroundColor: COLORS.accentSoft, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  notificationAvatarImage: { width: 42, height: 42, borderRadius: 15 },
+  notificationAvatarText: { color: '#A7C6FF', fontSize: 16, fontWeight: '900' },
+  notificationContent: { flex: 1, gap: 5 },
+  notificationActorLine: { color: COLORS.muted, fontSize: 11, lineHeight: 17 },
+  notificationActor: { color: COLORS.text, fontWeight: '900' },
+  notificationTime: { color: COLORS.muted, fontSize: 9 },
+  notificationUnreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.blue }
 });
 
 
