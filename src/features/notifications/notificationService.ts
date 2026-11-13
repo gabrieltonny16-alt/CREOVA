@@ -99,10 +99,11 @@ export async function markAllNotificationsRead(): Promise<void> {
 export function subscribeToMyNotifications(
   userId: string,
   onInsert: (notification: Partial<CreovaNotification>) => void,
+  scope: 'inbox' | 'badge' = 'inbox',
 ) {
   const client = requireSupabase();
   return client
-    .channel('creova-notifications-' + userId)
+    .channel('creova-notifications-' + scope + '-' + userId)
     .on(
       'postgres_changes',
       {
