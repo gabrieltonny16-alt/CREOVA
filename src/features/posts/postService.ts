@@ -352,6 +352,106 @@ export async function togglePostLike(postId: string): Promise<boolean> {
   return true;
 }
 
+export type CreovaCommentReaction = 'like' | 'love' | 'laugh' | 'wow' | 'sad' | 'angry';
+
+export type CreovaPostComment = {
+  id: string;
+  post_id: string;
+  user_id: string;
+  parent_comment_id: string | null;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  author: { username: string; display_name: string; avatar_url: string | null } | null;
+  reactions: { user_id: string; reaction_type: CreovaCommentReaction }[];
+};
+
+const MAX_COMMENT_LENGTH = 2000;
+const COMMENT_REACTIONS: CreovaCommentReaction[] = ['like', 'love', 'laugh', 'wow', 'sad', 'angry'];
+
+export async function getPostComments(postId: string): Promise<CreovaPostComment[]> {
+  const client = requireSupabase();
+  const { data, error } = await client.from('post_comments')
+    .select('id, post_id, user_id, parent_comment_id, body, created_at, updated_at, author:profiles!post_comments_user_id_fkey(username, display_name, avatar_url), reactions:comment_reactions(user_id, reaction_type)')
+    .eq('post_id', postId)
+    .order('created_at', { ascending: true })
+    .limit(250);
+  if (error) throw error;
+  return (data ?? []) as unknown as CreovaPostComment[];
+}
+
+export async function createPostComment(postId: string, body: string, parentCommentId?: string | null): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to comment.');
+  const cleanBody = body.trim();
+  if (!cleanBody) throw new Error('Write a comment first.');
+  if (cleanBody.length > MAX_COMMENT_LENGTH) throw new Error('Comments can be up to 2,000 characters.');
+  const { error } = await client.from('post_comments').insert({
+    post_id: postId,
+    user_id: auth.user.id,
+    parent_comment_id: parentCommentId ?? null,
+    body: cleanBody,
+  });
+  if (error) throw error;
+}
+
+export async function updatePostComment(commentId: string, body: string): Promise<void> {
+  const client = requireSupabase();
+  const cleanBody = body.trim();
+  if (!cleanBody) throw new Error('A comment cannot be empty.');
+  if (cleanBody.length > MAX_COMMENT_LENGTH) throw new Error('Comments can be up to 2,000 characters.');
+  const { error } = await client.from('post_comments')
+    .update({ body: cleanBody, updated_at: new Date().toISOString() })
+    .eq('id', commentId);
+  if (error) throw error;
+}
+
+export async function deletePostComment(commentId: string): Promise<void> {
+  const client = requireSupabase();
+  const { error } = await client.from('post_comments').delete().eq('id', commentId);
+  if (error) throw error;
+}
+
+export async function setPostCommentReaction(
+  commentId: string,
+  reactionType: CreovaCommentReaction,
+): Promise<CreovaCommentReaction | null> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to react.');
+  if (!COMMENT_REACTIONS.includes(reactionType)) throw new Error('Unsupported reaction.');
+
+  const { data: existing, error: lookupError } = await client.from('comment_reactions')
+    .select('id, reaction_type')
+    .eq('comment_id', commentId)
+    .eq('user_id', auth.user.id)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (existing?.reaction_type === reactionType) {
+    const { error } = await client.from('comment_reactions').delete()
+      .eq('comment_id', commentId).eq('user_id', auth.user.id);
+    if (error) throw error;
+    return null;
+  }
+  if (existing) {
+    const { error } = await client.from('comment_reactions').update({ reaction_type: reactionType })
+      .eq('comment_id', commentId).eq('user_id', auth.user.id);
+    if (error) throw error;
+  } else {
+    const { error } = await client.from('comment_reactions').insert({
+      comment_id: commentId,
+      user_id: auth.user.id,
+      reaction_type: reactionType,
+    });
+    if (error) throw error;
+  }
+  return reactionType;
+}
+
 export async function getProfilePosts(profileId: string, limit = 60): Promise<CreovaFeedPost[]> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
