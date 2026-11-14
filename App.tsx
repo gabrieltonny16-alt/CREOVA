@@ -1279,7 +1279,7 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
                 </TouchableOpacity>}
       </View>
       <View style={styles.profilePostsSection}>
-        <Text style={styles.subheading}>Your posts</text>
+        <Text style={styles.subheading}>Your posts</Text>
         <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
       </View>
       <TouchableOpacity onPress={signOut} style={styles.signOutButton}><Text style={styles.signOutText}>Sign out</Text></TouchableOpacity>
