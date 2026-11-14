@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import VideoTrim, { showEditor } from 'react-native-video-trim';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar, respondToFollowRequest } from './src/features/profile/profileService';
@@ -26,6 +28,7 @@ import {
   useWindowDimensions,
   Switch,
   Share,
+  Modal,
 } from 'react-native';
 
 type Tab = 'Home' | 'Reels' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
@@ -703,14 +706,121 @@ function CreateScreen() {
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [notice, setNotice] = useState('');
+  const [cameraVisible, setCameraVisible] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [cameraFacing, setCameraFacing] = useState<'front' | 'back'>('back');
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const cameraRef = useRef<CameraView | null>(null);
+  const pendingVideoRef = useRef<ImagePicker.ImagePickerAsset | null>(null);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
+
+  useEffect(() => {
+    const finished = VideoTrim.onFinishTrimming(({ outputPath, duration }) => {
+      const original = pendingVideoRef.current;
+      if (!original) return;
+      const cleanPath = outputPath.startsWith('file://') ? outputPath : 'file://' + outputPath;
+      setSelectedMedia({
+        ...original,
+        uri: cleanPath,
+        type: 'video',
+        mimeType: 'video/mp4',
+        fileSize: null,
+        duration,
+        width: original.width || 1080,
+        height: original.height || 1920,
+      });
+      pendingVideoRef.current = null;
+      setNotice('Video edited. Preview it below before publishing.');
+    });
+    const cancelled = VideoTrim.onCancel(() => {
+      pendingVideoRef.current = null;
+      setNotice('Video editing cancelled. Your original video has not been changed.');
+    });
+    const failed = VideoTrim.onError(({ message }) => {
+      pendingVideoRef.current = null;
+      setNotice(message || 'The video editor could not open this file.');
+    });
+    return () => {
+      finished.remove();
+      cancelled.remove();
+      failed.remove();
+    };
+  }, []);
+
+  function editVideo(asset: ImagePicker.ImagePickerAsset) {
+    pendingVideoRef.current = asset;
+    setNotice('Opening the Reel editor…');
+    try {
+      showEditor(asset.uri, {
+        maxDuration: 60_000,
+        closeWhenFinish: true,
+        saveToPhoto: false,
+        headerText: 'Edit your Reel',
+      });
+    } catch (error) {
+      pendingVideoRef.current = null;
+      setNotice(error instanceof Error ? error.message : 'Could not open the video editor.');
+    }
+  }
+
+  async function openCamera() {
+    setNotice('');
+    try {
+      const camera = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
+      if (!camera.granted) {
+        setNotice('Allow camera access in your phone settings to record a Reel.');
+        return;
+      }
+      const microphone = microphonePermission?.granted ? microphonePermission : await requestMicrophonePermission();
+      if (!microphone.granted) {
+        setNotice('Allow microphone access to record a Reel with sound.');
+        return;
+      }
+      setRecordingDuration(0);
+      setCameraVisible(true);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not request camera access.');
+    }
+  }
+
+  async function startRecording() {
+    if (!cameraRef.current || recording) return;
+    setRecording(true);
+    setRecordingDuration(0);
+    setNotice('');
+    try {
+      const result = await cameraRef.current.recordAsync({
+        maxDuration: 60,
+        maxFileSize: 50 * 1024 * 1024,
+        progressUpdateInterval: 0.5,
+      });
+      if (result?.uri) {
+        setCameraVisible(false);
+        const asset: ImagePicker.ImagePickerAsset = {
+          assetId: null, base64: null, duration: recordingDuration * 1000, exif: null,
+          fileName: 'creova-reel.mp4', fileSize: null, height: 1920,
+          mimeType: 'video/mp4', type: 'video', uri: result.uri, width: 1080,
+        };
+        editVideo(asset);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Recording failed. Please try again.');
+    } finally {
+      setRecording(false);
+    }
+  }
+
+  function stopRecording() {
+    if (recording) cameraRef.current?.stopRecording();
+    else setCameraVisible(false);
+  }
 
   async function chooseImage() {
     setNotice('');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images', 'videos'],
-        allowsEditing: false,
-        quality: 0.85,
+        mediaTypes: ['images', 'videos'], allowsEditing: false, quality: 0.85,
       });
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
@@ -728,8 +838,8 @@ function CreateScreen() {
           setNotice(mediaType === 'image' ? 'Choose an image smaller than 10 MB.' : 'Choose a video smaller than 50 MB.');
           return;
         }
-        if (mediaType === 'video' && asset.duration && asset.duration > 60_000) {
-          setNotice('Choose a video that is 60 seconds or shorter.');
+        if (mediaType === 'video') {
+          editVideo({ ...asset, mimeType });
           return;
         }
         setSelectedMedia({ ...asset, mimeType });
@@ -750,9 +860,7 @@ function CreateScreen() {
     try {
       if (selectedMedia) {
         await createPostWithMedia({
-          caption,
-          postType,
-          visibility,
+          caption, postType, visibility,
           media: {
             uri: selectedMedia.uri,
             mimeType: selectedMedia.mimeType ?? 'image/jpeg',
@@ -760,9 +868,7 @@ function CreateScreen() {
             width: selectedMedia.width,
             height: selectedMedia.height,
             mediaType: selectedMedia.type === 'video' || selectedMedia.mimeType?.startsWith('video/') ? 'video' : 'image',
-            durationSeconds: selectedMedia.type === 'video' && selectedMedia.duration
-              ? selectedMedia.duration / 1000
-              : null,
+            durationSeconds: selectedMedia.type === 'video' && selectedMedia.duration ? selectedMedia.duration / 1000 : null,
           },
         }, setUploadProgress);
       } else {
@@ -784,28 +890,27 @@ function CreateScreen() {
     <Text style={styles.heading}>Create</Text>
     <View style={styles.composerCard}>
       <Text style={styles.composerTitle}>Share an update</Text>
-      <Text style={styles.composerHint}>Share your words and photos with your CREOVA community.</Text>
-      <TextInput
-        value={caption}
-        onChangeText={setCaption}
-        multiline
-        maxLength={2200}
-        placeholder="What are you creating, learning, or evolving?"
-        placeholderTextColor="#71819C"
-        style={styles.composerInput}
-        textAlignVertical="top"
-      />
+      <Text style={styles.composerHint}>Write a post, upload a clip, or record a Reel without leaving CREOVA.</Text>
+      <TextInput value={caption} onChangeText={setCaption} multiline maxLength={2200}
+        placeholder="What are you creating, learning, or evolving?" placeholderTextColor="#71819C"
+        style={styles.composerInput} textAlignVertical="top" />
       <Text style={styles.composerCount}>{caption.length}/2200</Text>
-      <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
-        <Text style={styles.imagePickButtonText}>{selectedMedia ? 'Change selected media' : '＋ Add photo or video'}</Text>
-      </TouchableOpacity>
+      <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+        <TouchableOpacity onPress={openCamera} disabled={publishing} style={styles.imagePickButton}>
+          <Text style={styles.imagePickButtonText}>● Record a Reel</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={chooseImage} disabled={publishing} style={styles.imagePickButton}>
+          <Text style={styles.imagePickButtonText}>{selectedMedia ? 'Change media' : '＋ Upload photo/video'}</Text>
+        </TouchableOpacity>
+      </View>
       {selectedMedia && <View style={styles.imagePreviewWrap}>
         {selectedMedia.type === 'video'
-          ? <View style={[styles.imagePreview, styles.videoPreview]}><Text style={styles.videoPreviewIcon}>▶</Text><Text style={styles.videoPreviewText}>VIDEO · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View>
+          ? <View style={[styles.imagePreview, styles.videoPreview]}><Text style={styles.videoPreviewIcon}>▶</Text><Text style={styles.videoPreviewText}>EDITED REEL · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View>
           : <Image source={{ uri: selectedMedia.uri }} style={styles.imagePreview} resizeMode="cover" />}
-        <TouchableOpacity onPress={() => setSelectedMedia(null)} style={styles.removeImageButton}>
-          <Text style={styles.removeImageText}>Remove media</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+          {selectedMedia.type === 'video' && <TouchableOpacity onPress={() => editVideo(selectedMedia)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Trim again</Text></TouchableOpacity>}
+          <TouchableOpacity onPress={() => setSelectedMedia(null)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Remove media</Text></TouchableOpacity>
+        </View>
       </View>}
       <Text style={styles.editLabel}>POST FORMAT</Text>
       <View style={styles.postTypeRow}>
@@ -827,19 +932,34 @@ function CreateScreen() {
         <Text style={styles.publishButtonText}>{publishing ? (selectedMedia ? 'Uploading media…' : 'Publishing…') : selectedMedia?.type === 'video' ? 'Publish Reel' : 'Publish post'}</Text>
       </TouchableOpacity>
       {publishing && selectedMedia && <View style={styles.uploadProgressWrap}>
-        <View style={styles.uploadProgressTrack}>
-          <View style={[styles.uploadProgressFill, { width: `${Math.round(uploadProgress)}%` }]} />
-        </View>
+        <View style={styles.uploadProgressTrack}><View style={[styles.uploadProgressFill, { width: Math.round(uploadProgress) + '%' }]} /></View>
         <Text style={styles.uploadProgressText}>{Math.round(uploadProgress)}% uploaded · automatic retries enabled</Text>
-        <TouchableOpacity onPress={cancelActivePostMediaUpload} style={styles.cancelUploadButton}>
-          <Text style={styles.cancelUploadText}>Cancel upload</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={cancelActivePostMediaUpload} style={styles.cancelUploadButton}><Text style={styles.cancelUploadText}>Cancel upload</Text></TouchableOpacity>
       </View>}
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Publish a video and it will appear in the CREOVA Reels feed using the existing secure media pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
+    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Reels Studio</Text><Text style={styles.optionDescription}>Record inside CREOVA, trim your clip in the native editor, preview it, then publish through the existing secure media pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
+    <Modal visible={cameraVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={stopRecording}>
+      <View style={{ flex: 1, backgroundColor: '#03060D' }}>
+        <CameraView ref={cameraRef} style={{ flex: 1 }} facing={cameraFacing} mode="video" videoQuality="720p"
+          onRecordingProgress={event => setRecordingDuration(Math.floor(event.duration))}
+          onMountError={event => setNotice(event.message)} />
+        <View style={{ position: 'absolute', top: 42, left: 20, right: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <TouchableOpacity onPress={stopRecording} style={{ padding: 12 }}><Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '800' }}>Close</Text></TouchableOpacity>
+          <Text style={{ color: '#FFFFFF', fontWeight: '900', letterSpacing: 1 }}>CREOVA CAMERA</Text>
+          <TouchableOpacity disabled={recording} onPress={() => setCameraFacing(value => value === 'back' ? 'front' : 'back')} style={{ padding: 12 }}><Text style={{ color: '#FFFFFF', fontSize: 16 }}>↻</Text></TouchableOpacity>
+        </View>
+        <View style={{ position: 'absolute', bottom: 48, left: 0, right: 0, alignItems: 'center', gap: 14 }}>
+          <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '800' }}>{recording ? 'RECORDING · ' + Math.min(60, recordingDuration) + 's / 60s' : 'UP TO 60 SECONDS'}</Text>
+          <TouchableOpacity onPress={recording ? stopRecording : startRecording} style={{ width: 78, height: 78, borderRadius: 39, borderWidth: 5, borderColor: '#FFFFFF', backgroundColor: recording ? '#E54862' : '#3985FF', alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: recording ? 25 : 54, height: recording ? 25 : 54, borderRadius: recording ? 6 : 27, backgroundColor: '#FFFFFF' }} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   </View>;
 }
+
 function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange, onBack }: {
   onOpenProfile: (username: string) => void;
   onOpenPost: (postId: string) => void;
