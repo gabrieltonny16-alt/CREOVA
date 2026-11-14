@@ -439,7 +439,6 @@ const styles = StyleSheet.create({
   composerInput: { flex: 1, minHeight: 44, maxHeight: 130, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, color: COLORS.text, fontSize: 12, textAlignVertical: 'top' },
   sendButton: { backgroundColor: COLORS.blue, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 13 },
   sendButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
-  messageTime: { color: COLORS.muted, fontSize: 9 },
   searchRow: { flexDirection: 'row', gap: 8 },
   searchInput: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 12, paddingHorizontal: 12, color: COLORS.text, fontSize: 12 },
   searchButton: { backgroundColor: COLORS.blue, paddingHorizontal: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
