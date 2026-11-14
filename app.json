@@ -34,6 +34,12 @@
           "color": "#3985FF",
           "defaultChannel": "creova-activity"
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "CREOVA uses your microphone so you can send voice notes."
+        }
       ]
     ],
     "icon": "./assets/brand/creova-icon.png",
