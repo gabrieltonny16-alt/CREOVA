@@ -29,6 +29,14 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "CREOVA uses your camera to record Reels.",
+          "microphonePermission": "CREOVA uses your microphone to record audio with Reels.",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
         "expo-notifications",
         {
           "color": "#3985FF",
