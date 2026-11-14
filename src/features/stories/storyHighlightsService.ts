@@ -41,7 +41,7 @@ export async function createStoryHighlight(title:string):Promise<string>{
 }
 export async function addStoryToHighlight(storyId:string,highlightId:string):Promise<void>{
   const {client,user}=await currentUser();
-  const [{data:story,error:se},{data:highlight,error:he}]=await Promise.all([
+  const [{data:story,error:se},{error:he}]=await Promise.all([
     client.from('stories').select('id,media_path,media_type,caption,duration_seconds').eq('id',storyId).eq('user_id',user.id).gt('expires_at',new Date().toISOString()).single(),
     client.from('story_highlights').select('id').eq('id',highlightId).eq('user_id',user.id).single()
   ]);
