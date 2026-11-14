@@ -10,6 +10,7 @@ import { supabase } from './src/lib/supabase';
 import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications, getMyNotificationPreferences, saveMyNotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from './src/features/notifications/notificationService';
 import type { CreovaNotification, CreovaNotificationPreferences } from './src/features/notifications/notificationService';
 import { MessagingInbox } from './src/features/messaging/MessagingInbox';
+import { StoriesSection } from './src/features/stories/StoriesSection';
 import { getThisDevicePushStatus, registerThisDeviceForPushNotifications, disableThisDevicePushNotifications, addPushNotificationResponseListener, getInitialPushNotificationResponse } from './src/features/notifications/pushNotificationService';
 import {
   SafeAreaView,
@@ -116,6 +117,7 @@ function HomeScreen() {
           <Text style={styles.refreshText}>↻ Refresh</Text>
         </TouchableOpacity>
       </View>
+      <StoriesSection />
       <View style={styles.welcomeCard}>
         <View style={styles.welcomeGlow} />
         <Text style={styles.welcomeEyebrow}>A NEW WAY TO BE SOCIAL</Text>
