@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,10 +14,13 @@ import { searchProfiles } from '../profile/profileService';
 import type { CreovaProfile } from '../profile/profileService';
 import {
   acceptConversationRequest,
+  deleteConversationMessage,
+  editConversationMessage,
   getConversationMessages,
   getMyConversations,
   markConversationRead,
   sendTextMessage,
+  setConversationMessageReaction,
   startDirectConversation,
   subscribeToConversationMessages,
 } from './messagingService';
@@ -54,6 +58,7 @@ export function MessagingInbox() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
@@ -147,7 +152,12 @@ export function MessagingInbox() {
     setBusy(true);
     setNotice('');
     try {
-      if (newRecipient) {
+      if (editingMessageId) {
+        await editConversationMessage(editingMessageId, cleanDraft);
+        setEditingMessageId(null);
+        setDraft('');
+        if (selectedId) await loadMessages(selectedId);
+      } else if (newRecipient) {
         const conversationId = await startDirectConversation(newRecipient.id, cleanDraft);
         setNewRecipient(null);
         setSearchOpen(false);
@@ -165,6 +175,46 @@ export function MessagingInbox() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function handleReaction(message: ConversationMessage, emoji: '❤️' | '😂' | '😮' | '😢' | '👍' | '🔥') {
+    if (!selectedId || busy || message.deleted_at) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await setConversationMessageReaction(selectedId, message.id, emoji);
+      await loadMessages(selectedId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not add your reaction.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function beginEdit(message: ConversationMessage) {
+    setEditingMessageId(message.id);
+    setDraft(message.body ?? '');
+    setNotice('');
+  }
+
+  function confirmDelete(message: ConversationMessage) {
+    Alert.alert('Delete message?', 'This message will be removed from the conversation.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (!selectedId) return;
+        setBusy(true);
+        setNotice('');
+        try {
+          await deleteConversationMessage(message.id);
+          await loadMessages(selectedId);
+          await loadConversations();
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : 'Could not delete this message.');
+        } finally {
+          setBusy(false);
+        }
+      } },
+    ]);
   }
 
   async function acceptRequest() {
@@ -240,16 +290,39 @@ export function MessagingInbox() {
                     {message.edited_at ? ' · edited' : ''}
                   </Text>
                 </View>
+                <View style={[styles.messageExtras, own && styles.messageExtrasOwn]}>
+                  {!!message.reactions?.length && (
+                    <View style={styles.reactionSummary}>
+                      {[...new Set(message.reactions.map(reaction => reaction.emoji))].map(emoji => {
+                        const count = message.reactions.filter(reaction => reaction.emoji === emoji).length;
+                        const mine = message.reactions.some(reaction => reaction.emoji === emoji && reaction.user_id === viewerId);
+                        return <Text key={emoji} style={[styles.reactionCount, mine && styles.reactionCountMine]}>{emoji} {count}</Text>;
+                      })}
+                    </View>
+                  )}
+                  {!message.deleted_at && (
+                    <View style={styles.messageTools}>
+                      {(['❤️', '😂', '😮', '😢', '👍', '🔥'] as const).map(emoji => (
+                        <TouchableOpacity key={emoji} disabled={busy} onPress={() => { void handleReaction(message, emoji); }} style={styles.reactionButton}>
+                          <Text style={styles.reactionButtonText}>{emoji}</Text>
+                        </TouchableOpacity>
+                      ))}
+                      {own && <TouchableOpacity disabled={busy} onPress={() => beginEdit(message)} style={styles.messageAction}><Text style={styles.messageActionText}>Edit</Text></TouchableOpacity>}
+                      {own && <TouchableOpacity disabled={busy} onPress={() => confirmDelete(message)} style={styles.messageAction}><Text style={styles.messageActionDanger}>Delete</Text></TouchableOpacity>}
+                    </View>
+                  )}
+                </View>
               </View>
             );
           })}
         </ScrollView>
         {selectedConversation.myMembership === 'accepted' && (
           <View style={styles.composer}>
+            {editingMessageId && <TouchableOpacity onPress={() => { setEditingMessageId(null); setDraft(''); }} style={styles.cancelEdit}><Text style={styles.cancelEditText}>Cancel edit</Text></TouchableOpacity>}
             <TextInput
               value={draft}
               onChangeText={setDraft}
-              placeholder="Write a message…"
+              placeholder={editingMessageId ? 'Edit your message…' : 'Write a message…'}
               placeholderTextColor="#71819C"
               style={styles.composerInput}
               multiline
@@ -257,7 +330,7 @@ export function MessagingInbox() {
               editable={!busy}
             />
             <TouchableOpacity disabled={busy || !draft.trim()} onPress={sendMessage} style={[styles.sendButton, (busy || !draft.trim()) && styles.disabledButton]}>
-              <Text style={styles.sendButtonText}>{busy ? '…' : 'Send'}</Text>
+              <Text style={styles.sendButtonText}>{busy ? '…' : editingMessageId ? 'Save' : 'Send'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -435,6 +508,19 @@ const styles = StyleSheet.create({
   messageText: { color: COLORS.text, fontSize: 12, lineHeight: 18 },
   messageTextOwn: { color: '#FFFFFF' },
   messageTimeOwn: { color: '#D9E7FF' },
+  messageExtras: { maxWidth: '84%', gap: 5, marginTop: 3, alignSelf: 'flex-start' },
+  messageExtrasOwn: { alignSelf: 'flex-end' },
+  reactionSummary: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  reactionCount: { color: '#D7E4FA', backgroundColor: COLORS.raised, borderRadius: 10, overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3, fontSize: 10 },
+  reactionCountMine: { borderWidth: 1, borderColor: COLORS.blue },
+  messageTools: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
+  reactionButton: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 9, paddingHorizontal: 6, paddingVertical: 4 },
+  reactionButtonText: { fontSize: 12 },
+  messageAction: { paddingHorizontal: 7, paddingVertical: 5 },
+  messageActionText: { color: '#A7C6FF', fontSize: 9, fontWeight: '800' },
+  messageActionDanger: { color: '#FF9BAA', fontSize: 9, fontWeight: '800' },
+  cancelEdit: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 5 },
+  cancelEditText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
   composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border },
   composerInput: { flex: 1, minHeight: 44, maxHeight: 130, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, color: COLORS.text, fontSize: 12, textAlignVertical: 'top' },
   sendButton: { backgroundColor: COLORS.blue, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 13 },
