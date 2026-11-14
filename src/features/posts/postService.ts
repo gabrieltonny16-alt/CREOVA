@@ -1,6 +1,6 @@
 import * as tus from 'tus-js-client';
 import { Platform } from 'react-native';
-import { requireSupabase, supabaseUrl } from '../../lib/supabase';
+import { requireSupabase, supabaseUrl, supabasePublishableKey } from '../../lib/supabase';
 
 const MEDIA_BUCKET = 'creova-media';
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -147,7 +147,7 @@ async function uploadMediaResumable(
       retryDelays: [0, 3000, 5000, 10000, 20000],
       headers: {
         authorization: `Bearer ${auth.session.access_token}`,
-        apikey: client.supabaseKey,
+        apikey: supabasePublishableKey,
       },
       uploadDataDuringCreation: true,
       metadata: {
