@@ -12,7 +12,7 @@ import {
   toggleStoryReaction,
   recordStoryView,
 } from './storyService';
-import type { CreovaStory, CreovaStoryGroup, CreovaStoryViewer } from './storyService';
+import type { CreovaStory, CreovaStoryGroup, CreovaStoryViewer, StoryEngagement } from './storyService';
 
 const BLUE = '#3985FF';
 const MUTED = '#9AAAC4';
