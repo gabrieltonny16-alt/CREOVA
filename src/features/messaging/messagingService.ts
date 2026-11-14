@@ -213,7 +213,6 @@ export async function acceptConversationRequest(conversationId: string): Promise
     .update({
       membership_status: 'accepted',
       accepted_at: new Date().toISOString(),
-      joined_at: new Date().toISOString(),
     })
     .eq('conversation_id', conversationId)
     .eq('user_id', viewerId)
