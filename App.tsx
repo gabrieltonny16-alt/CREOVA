@@ -4,7 +4,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar, respondToFollowRequest } from './src/features/profile/profileService';
 import type { CreovaProfile } from './src/features/profile/profileService';
-import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
+import { createPost, createPostWithMedia, cancelActivePostMediaUpload, getHomeFeed, getReelsFeed, getProfilePosts, getPostById, togglePostLike, getPostComments, createPostComment, updatePostComment, deletePostComment, setPostCommentReaction } from './src/features/posts/postService';
 import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from './src/features/posts/postService';
 import { supabase } from './src/lib/supabase';
 import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications, getMyNotificationPreferences, saveMyNotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from './src/features/notifications/notificationService';
@@ -25,9 +25,10 @@ import {
   View,
   useWindowDimensions,
   Switch,
+  Share,
 } from 'react-native';
 
-type Tab = 'Home' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
+type Tab = 'Home' | 'Reels' | 'Discover' | 'Create' | 'Inbox' | 'Profile';
 
 const COLORS = {
   background: '#090D18',
@@ -43,6 +44,7 @@ const COLORS = {
 
 const TABS: { key: Tab; symbol: string; label: string }[] = [
   { key: 'Home', symbol: '⌂', label: 'Home' },
+  { key: 'Reels', symbol: '▶', label: 'Reels' },
   { key: 'Discover', symbol: '⌕', label: 'Explore' },
   { key: 'Create', symbol: '+', label: 'Create' },
   { key: 'Inbox', symbol: '✉', label: 'Messages' },
@@ -164,6 +166,73 @@ function HomeScreen() {
   );
 }
 
+function ReelVideo({ uri, active }: { uri: string; active: boolean }) {
+  const player = useVideoPlayer(uri, instance => {
+    instance.loop = true;
+    if (active) instance.play();
+  });
+  useEffect(() => { if (active) player.play(); else player.pause(); }, [active, player]);
+  return <VideoView player={player} style={{ width: '100%', height: '100%' }} contentFit="cover" nativeControls={false} />;
+}
+
+function ReelsScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
+  const [reels, setReels] = useState<CreovaFeedPost[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [busyPost, setBusyPost] = useState('');
+  const [message, setMessage] = useState('');
+  const { height } = useWindowDimensions();
+  const reelHeight = Math.max(520, height - 176);
+  async function loadReels() {
+    setLoading(true); setMessage('');
+    try { setReels(await getReelsFeed()); setActiveIndex(0); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not load Reels.'); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void loadReels(); }, []);
+  async function likeReel(reel: CreovaFeedPost) {
+    if (busyPost) return;
+    setBusyPost(reel.id); setMessage('');
+    try {
+      const liked = await togglePostLike(reel.id);
+      setReels(items => items.map(item => item.id === reel.id ? { ...item, likedByMe: liked, likeCount: Math.max(0, item.likeCount + (liked ? 1 : -1)) } : item));
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not update your like.'); }
+    finally { setBusyPost(''); }
+  }
+  async function shareReel(reel: CreovaFeedPost) {
+    try { await Share.share({ message: 'Watch this CREOVA Reel by @' + (reel.author?.username ?? 'creator') + ': ' + reel.caption }); }
+    catch (error) { setMessage(error instanceof Error ? error.message : 'Could not open sharing.'); }
+  }
+  return <View style={styles.screenContent}>
+    <View style={styles.sectionHeading}>
+      <View><Text style={styles.eyebrow}>SHORT VIDEOS</Text><Text style={styles.heading}>Reels</Text></View>
+      <TouchableOpacity onPress={() => void loadReels()} style={styles.refreshButton}><Text style={styles.refreshText}>↻ Refresh</Text></TouchableOpacity>
+    </View>
+    {!!message && <Text style={styles.notice}>{message}</Text>}
+    {loading && <EmptyState title="Loading Reels" description="Finding videos shared by the CREOVA community." />}
+    {!loading && reels.length === 0 && <EmptyState title="Your Reels feed starts here" description="Publish a video from Create, or follow creators whose videos you want to see." />}
+    {!loading && reels.length > 0 && <ScrollView style={{ height: reelHeight, borderRadius: 18, overflow: 'hidden', backgroundColor: '#05070D' }} pagingEnabled snapToInterval={reelHeight} decelerationRate="fast" showsVerticalScrollIndicator={false} onMomentumScrollEnd={event => setActiveIndex(Math.min(reels.length - 1, Math.max(0, Math.round(event.nativeEvent.contentOffset.y / reelHeight))))}>
+      {reels.map((reel, index) => {
+        const video = reel.media.find(item => item.mediaType === 'video');
+        if (!video) return null;
+        return <View key={reel.id} style={{ height: reelHeight, backgroundColor: '#05070D', justifyContent: 'center' }}>
+          <ReelVideo uri={video.signedUrl} active={index === activeIndex} />
+          <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 240, backgroundColor: 'rgba(0,0,0,0.38)' }} />
+          <View style={{ position: 'absolute', left: 16, right: 76, bottom: 24 }}>
+            <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 14, marginBottom: 7 }}>@{reel.author?.username ?? 'creator'}</Text>
+            {!!reel.caption && <Text numberOfLines={4} style={{ color: '#FFFFFF', fontSize: 13, lineHeight: 19 }}>{reel.caption}</Text>}
+            <Text style={{ color: '#D2D9E7', fontSize: 10, marginTop: 8 }}>CREOVA · {new Date(reel.created_at).toLocaleDateString()}</Text>
+          </View>
+          <View style={{ position: 'absolute', right: 12, bottom: 26, alignItems: 'center', gap: 19 }}>
+            <TouchableOpacity disabled={busyPost === reel.id} onPress={() => void likeReel(reel)} style={{ alignItems: 'center' }}><Text style={{ color: reel.likedByMe ? '#FF5577' : '#FFFFFF', fontSize: 30 }}>{reel.likedByMe ? '♥' : '♡'}</Text><Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>{reel.likeCount}</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => onOpenPost(reel.id)} style={{ alignItems: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 27 }}>▢</Text><Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '800' }}>{reel.commentCount}</Text></TouchableOpacity>
+            <TouchableOpacity onPress={() => void shareReel(reel)} style={{ alignItems: 'center' }}><Text style={{ color: '#FFFFFF', fontSize: 25 }}>↗</Text><Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '800' }}>Share</Text></TouchableOpacity>
+          </View>
+        </View>;
+      })}
+    </ScrollView>}
+  </View>;
+}
 function DiscoverScreen({ onOpenProfile }: { onOpenProfile: (username: string) => void }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Awaited<ReturnType<typeof searchProfiles>>>([]);
@@ -755,7 +824,7 @@ function CreateScreen() {
         ))}
       </View>
       <TouchableOpacity disabled={publishing || (!caption.trim() && !selectedMedia)} onPress={publish} style={[styles.publishButton, (publishing || (!caption.trim() && !selectedMedia)) && styles.publishButtonDisabled]}>
-        <Text style={styles.publishButtonText}>{publishing ? (selectedMedia ? 'Uploading media…' : 'Publishing…') : 'Publish post'}</Text>
+        <Text style={styles.publishButtonText}>{publishing ? (selectedMedia ? 'Uploading media…' : 'Publishing…') : selectedMedia?.type === 'video' ? 'Publish Reel' : 'Publish post'}</Text>
       </TouchableOpacity>
       {publishing && selectedMedia && <View style={styles.uploadProgressWrap}>
         <View style={styles.uploadProgressTrack}>
@@ -768,7 +837,7 @@ function CreateScreen() {
       </View>}
       {!!notice && <Text style={styles.notice}>{notice}</Text>}
     </View>
-    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
+    <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Publish a video and it will appear in the CREOVA Reels feed using the existing secure media pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
 function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange, onBack }: {
@@ -1408,6 +1477,7 @@ function MainApp() {
       />;
     }
     switch (activeTab) {
+      case 'Reels': return <ReelsScreen onOpenPost={openPost} />;
       case 'Discover': return <DiscoverScreen onOpenProfile={openProfile} />;
       case 'Create': return <CreateScreen />;
       case 'Inbox': return <MessagingInbox />;
@@ -1437,7 +1507,7 @@ function MainApp() {
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
-          <ScrollView style={styles.mainScroll} contentContainerStyle={styles.mainScrollContent} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.mainScroll} contentContainerStyle={styles.mainScrollContent} showsVerticalScrollIndicator={false} scrollEnabled={activeTab !== 'Reels'}>
             <View style={[styles.contentMax, isWide && styles.contentMaxWide]}>{renderScreen()}</View>
           </ScrollView>
         </View>
