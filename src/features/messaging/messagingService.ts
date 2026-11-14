@@ -1,9 +1,12 @@
 import type { RealtimeChannel } from '@supabase/supabase-js';
-import { requireSupabase } from '../../lib/supabase';
+import * as tus from 'tus-js-client';
+import { Platform } from 'react-native';
+import { requireSupabase, supabaseUrl, supabasePublishableKey } from '../../lib/supabase';
 
 export type ConversationMember = {
   user_id: string;
   membership_status: 'accepted' | 'pending' | 'declined' | 'left';
+  last_read_at: string | null;
   role: 'admin' | 'member';
   profile: {
     id: string;
@@ -45,6 +48,7 @@ export type ConversationMessage = {
   attachment_mime_type: string | null;
   attachment_size: number | null;
   attachment_duration_ms: number | null;
+  attachment_url: string | null;
   sender: {
     username: string;
     display_name: string;
@@ -58,6 +62,9 @@ type RawConversation = Omit<ConversationPreview, 'latestMessage' | 'myMembership
 };
 
 const MAX_MESSAGE_LENGTH = 5000;
+const CHAT_MEDIA_BUCKET = 'creova-chat-media';
+const MAX_CHAT_MEDIA_BYTES = 25 * 1024 * 1024;
+const ALLOWED_CHAT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'video/webm', 'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/webm', 'audio/3gpp'];
 
 async function getViewerId(): Promise<string> {
   const client = requireSupabase();
@@ -86,7 +93,7 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
     .select(`
       id, kind, title, created_by, created_at, last_message_at,
       members:conversation_members(
-        user_id, membership_status, role,
+        user_id, membership_status, last_read_at, role,
         profile:profiles!conversation_members_user_id_fkey(id, username, display_name, avatar_url)
       )
     `)
@@ -154,7 +161,18 @@ export async function getConversationMessages(
 
   if (error) throw error;
   // Fetch the newest page first, then display it in chronological order.
-  return ((data ?? []).reverse()) as unknown as ConversationMessage[];
+  const rows = ((data ?? []).reverse()) as unknown as ConversationMessage[];
+  const paths = rows.flatMap(message => message.attachment_path ? [message.attachment_path] : []);
+  if (paths.length) {
+    const { data: signed, error: signedError } = await client.storage.from(CHAT_MEDIA_BUCKET).createSignedUrls(paths, 3600);
+    if (signedError) throw signedError;
+    const signedByPath = new Map((signed ?? []).flatMap(item => item.path && item.signedUrl ? [[item.path, item.signedUrl] as const] : []));
+    return rows.map(message => ({
+      ...message,
+      attachment_url: message.attachment_path ? signedByPath.get(message.attachment_path) ?? null : null,
+    }));
+  }
+  return rows.map(message => ({ ...message, attachment_url: null }));
 }
 
 export async function sendTextMessage(conversationId: string, body: string): Promise<void> {
@@ -174,6 +192,86 @@ export async function sendTextMessage(conversationId: string, body: string): Pro
   });
 
   if (error) throw error;
+}
+
+type ChatMediaInput = {
+  conversationId: string;
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number | null;
+  attachmentType: 'image' | 'video' | 'audio';
+  durationMs?: number | null;
+};
+
+async function uploadChatMedia(uri: string, objectPath: string, mimeType: string, fileSize: number | null): Promise<number> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getSession();
+  if (authError) throw authError;
+  if (!auth.session?.access_token) throw new Error('Your session expired. Sign in again before uploading.');
+  const configuredUrl = new URL(supabaseUrl);
+  const storageHost = configuredUrl.hostname.endsWith('.supabase.co')
+    ? configuredUrl.hostname.replace('.supabase.co', '.storage.supabase.co')
+    : configuredUrl.hostname;
+  const endpoint = `https://${storageHost}/storage/v1/upload/resumable`;
+  const fileName = objectPath.split('/').pop() ?? 'creova-chat-media';
+  const file = Platform.OS === 'web'
+    ? await (await fetch(uri)).blob()
+    : ({ uri, name: fileName, type: mimeType, ...(fileSize ? { size: fileSize } : {}) } as unknown as File);
+  return new Promise<number>((resolve, reject) => {
+    let totalBytes = fileSize ?? 0;
+    const upload = new tus.Upload(file, {
+      endpoint,
+      chunkSize: 6 * 1024 * 1024,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: { authorization: `Bearer ${auth.session!.access_token}`, apikey: supabasePublishableKey },
+      uploadDataDuringCreation: true,
+      metadata: { bucketName: CHAT_MEDIA_BUCKET, objectName: objectPath, contentType: mimeType, cacheControl: '3600' },
+      onProgress: (_uploaded, total) => { if (total > 0) totalBytes = total; },
+      onError: error => reject(error instanceof Error ? error : new Error(String(error))),
+      onSuccess: () => resolve(totalBytes),
+    });
+    upload.start();
+  });
+}
+
+export async function sendMediaMessage(input: ChatMediaInput): Promise<void> {
+  const client = requireSupabase();
+  const senderId = await getViewerId();
+  const mimeType = input.mimeType.toLowerCase();
+  if (!ALLOWED_CHAT_MIME_TYPES.includes(mimeType)) throw new Error('That file type is not supported in CREOVA messages.');
+  if (input.fileSize !== null && input.fileSize > MAX_CHAT_MEDIA_BYTES) throw new Error('Choose a file smaller than 25 MB.');
+  if (input.attachmentType === 'video' && input.durationMs != null && input.durationMs > 120000) {
+    throw new Error('Videos in messages must be 2 minutes or shorter.');
+  }
+  if (input.attachmentType === 'audio' && input.durationMs != null && input.durationMs > 120000) {
+    throw new Error('Voice notes must be 2 minutes or shorter.');
+  }
+  const safeName = input.fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-90) || 'attachment';
+  const objectPath = `${input.conversationId}/${senderId}/${Date.now()}-${safeName}`;
+  let uploaded = false;
+  try {
+    const uploadedBytes = await uploadChatMedia(input.uri, objectPath, mimeType, input.fileSize);
+    uploaded = true;
+    if (uploadedBytes <= 0 || uploadedBytes > MAX_CHAT_MEDIA_BYTES) {
+      throw new Error('The selected file exceeds CREOVA’s 25 MB message limit.');
+    }
+    const { error } = await client.from('conversation_messages').insert({
+      conversation_id: input.conversationId,
+      sender_id: senderId,
+      body: null,
+      attachment_type: input.attachmentType,
+      attachment_path: objectPath,
+      attachment_name: safeName,
+      attachment_mime_type: mimeType,
+      attachment_size: uploadedBytes,
+      attachment_duration_ms: input.durationMs ?? null,
+    });
+    if (error) throw error;
+  } catch (error) {
+    if (uploaded) await client.storage.from(CHAT_MEDIA_BUCKET).remove([objectPath]).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function startDirectConversation(
