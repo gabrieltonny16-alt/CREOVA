@@ -108,7 +108,7 @@ export async function createStory(input: StoryMediaInput & { caption?: string; v
     media_type: mediaType,
     duration_seconds: mediaType === 'video' ? input.durationSeconds : null,
     caption,
-    visibility: input.visibility ?? 'public',
+    visibility: input.visibility ?? 'followers',
     expires_at: new Date(createdAt.getTime() + STORY_LIFETIME_MS).toISOString(),
   });
   if (insertError) throw insertError;
