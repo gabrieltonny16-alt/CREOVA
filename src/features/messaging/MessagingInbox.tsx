@@ -98,6 +98,7 @@ export function MessagingInbox() {
   const [groupMode, setGroupMode] = useState(false);
   const [groupTitle, setGroupTitle] = useState('');
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<SearchProfile[]>([]);
+  const [groupDetailsOpen, setGroupDetailsOpen] = useState(false);
   const [filter, setFilter] = useState<'All' | 'Requests'>('All');
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 500);
@@ -420,10 +421,42 @@ export function MessagingInbox() {
             <Text style={styles.title}>{conversationTitle(selectedConversation)}</Text>
             <Text style={styles.subtitle}>{selectedConversation.kind === 'group' ? `${selectedConversation.members.length} members` : otherMembers[0]?.profile?.username ? `@${otherMembers[0].profile.username}` : 'Direct message'}</Text>
           </View>
-          <TouchableOpacity onPress={() => { void loadMessages(selectedId); }} style={styles.headerAction}>
-            <Text style={styles.headerActionText}>↻</Text>
-          </TouchableOpacity>
+          {selectedConversation.kind === 'group' ? (
+            <TouchableOpacity onPress={() => setGroupDetailsOpen(value => !value)} style={styles.headerAction}>
+              <Text style={styles.headerActionText}>ⓘ</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={() => { void loadMessages(selectedId); }} style={styles.headerAction}>
+              <Text style={styles.headerActionText}>↻</Text>
+            </TouchableOpacity>
+          )}
         </View>
+        {selectedConversation.kind === 'group' && groupDetailsOpen && (
+          <View style={styles.groupDetails}>
+            <View style={styles.groupDetailsHeading}>
+              <View style={styles.headerCopy}>
+                <Text style={styles.requestTitle}>{selectedConversation.title || 'CREOVA group'}</Text>
+                <Text style={styles.subtitle}>{selectedConversation.members.length} participants</Text>
+              </View>
+              <TouchableOpacity onPress={() => setGroupDetailsOpen(false)} style={styles.headerAction}>
+                <Text style={styles.headerActionText}>×</Text>
+              </TouchableOpacity>
+            </View>
+            {selectedConversation.members.map(member => (
+              <View key={member.user_id} style={styles.groupMemberRow}>
+                <Avatar
+                  uri={member.profile?.avatar_url ?? null}
+                  label={member.profile?.display_name || member.profile?.username || 'Member'}
+                  size={34}
+                />
+                <View style={styles.headerCopy}>
+                  <Text style={styles.personName}>{member.profile?.display_name || 'CREOVA member'}{member.user_id === viewerId ? ' (You)' : ''}</Text>
+                  <Text style={styles.subtitle}>{member.profile?.username ? `@${member.profile.username} · ` : ''}{member.role === 'admin' ? 'Group admin' : 'Member'} · {member.membership_status === 'accepted' ? 'Joined' : member.membership_status === 'pending' ? 'Invited' : member.membership_status}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
         {selectedConversation.myMembership === 'pending' && (
           <View style={styles.requestNotice}>
             <Text style={styles.requestTitle}>Message request</Text>
@@ -704,6 +737,9 @@ const styles = StyleSheet.create({
   backText: { color: '#A7C6FF', fontSize: 30, lineHeight: 34 },
   headerAction: { width: 36, height: 36, borderRadius: 10, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
   headerActionText: { color: '#A7C6FF', fontSize: 20 },
+  groupDetails: { backgroundColor: COLORS.surface, borderColor: COLORS.border, borderWidth: 1, borderRadius: 15, padding: 13, gap: 11 },
+  groupDetailsHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  groupMemberRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
   requestNotice: { backgroundColor: COLORS.surface, borderColor: '#355B9C', borderWidth: 1, borderRadius: 14, padding: 14, gap: 8 },
   requestTitle: { color: COLORS.text, fontSize: 13, fontWeight: '900' },
   requestCopy: { color: COLORS.muted, fontSize: 10, lineHeight: 16 },
