@@ -164,7 +164,8 @@ export async function getConversationMessages(
   if (error) throw error;
   // Fetch the newest page first, then display it in chronological order.
   const rows = ((data ?? []).reverse()) as unknown as ConversationMessage[];
-  const paths = rows.flatMap(message => message.attachment_path ? [message.attachment_path] : []);
+  // Deleted media is hidden and storage policy blocks new signed URLs for it.
+  const paths = rows.flatMap(message => message.attachment_path && !message.deleted_at ? [message.attachment_path] : []);
   if (paths.length) {
     const { data: signed, error: signedError } = await client.storage.from(CHAT_MEDIA_BUCKET).createSignedUrls(paths, 3600);
     if (signedError) throw signedError;
