@@ -21,7 +21,11 @@ import {
   editConversationMessage,
   getConversationMessages,
   getMyConversations,
+  inviteGroupMember,
+  leaveGroup,
   markConversationRead,
+  renameGroup,
+  setGroupMemberRole,
   sendTextMessage,
   sendMediaMessage,
   setConversationMessageReaction,
@@ -99,6 +103,9 @@ export function MessagingInbox() {
   const [groupTitle, setGroupTitle] = useState('');
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<SearchProfile[]>([]);
   const [groupDetailsOpen, setGroupDetailsOpen] = useState(false);
+  const [inviteSearchText, setInviteSearchText] = useState('');
+  const [inviteResults, setInviteResults] = useState<SearchProfile[]>([]);
+  const [groupRename, setGroupRename] = useState('');
   const [filter, setFilter] = useState<'All' | 'Requests'>('All');
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 500);
@@ -217,6 +224,90 @@ export function MessagingInbox() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not create this group.');
     } finally { setBusy(false); }
+  }
+
+  async function searchGroupInvitees() {
+    if (inviteSearchText.trim().length < 2 || searchBusy || !selectedConversation) return;
+    setSearchBusy(true);
+    setNotice('');
+    try {
+      const results = await searchProfiles(inviteSearchText);
+      const existingIds = new Set(selectedConversation.members.map(member => member.user_id));
+      setInviteResults(results.filter(person => person.id !== viewerId && !existingIds.has(person.id)));
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Member search failed.');
+    } finally {
+      setSearchBusy(false);
+    }
+  }
+
+  async function inviteMember(person: SearchProfile) {
+    if (!selectedId || busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await inviteGroupMember(selectedId, person.id);
+      setInviteResults(current => current.filter(item => item.id !== person.id));
+      await loadConversations();
+      setNotice(`Invitation sent to @${person.username}.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not invite this member.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeGroupRole(member: ConversationPreview['members'][number]) {
+    if (!selectedId || busy) return;
+    const nextRole = member.role === 'admin' ? 'member' : 'admin';
+    setBusy(true);
+    setNotice('');
+    try {
+      await setGroupMemberRole(selectedId, member.user_id, nextRole);
+      await loadConversations();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not update this member role.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveGroupName() {
+    if (!selectedId || busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      await renameGroup(selectedId, groupRename);
+      setGroupRename('');
+      await loadConversations();
+      setNotice('Group name updated.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not rename this group.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmLeaveGroup() {
+    if (!selectedId || busy) return;
+    Alert.alert('Leave this group?', 'You will stop receiving messages from this group.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Leave group', style: 'destructive', onPress: async () => {
+        if (!selectedId) return;
+        setBusy(true);
+        setNotice('');
+        try {
+          await leaveGroup(selectedId);
+          setSelectedId(null);
+          setGroupDetailsOpen(false);
+          await loadConversations();
+        } catch (error) {
+          setNotice(error instanceof Error ? error.message : 'Could not leave this group.');
+        } finally {
+          setBusy(false);
+        }
+      } },
+    ]);
   }
 
   async function sendMessage() {
@@ -410,6 +501,7 @@ export function MessagingInbox() {
 
   if (selectedId && selectedConversation) {
     const otherMembers = selectedConversation.members.filter(member => member.user_id !== viewerId);
+    const isGroupAdmin = selectedConversation.kind === 'group' && selectedConversation.members.some(member => member.user_id === viewerId && member.role === 'admin' && member.membership_status === 'accepted');
     return (
       <View style={styles.screen}>
         <View style={styles.chatHeader}>
@@ -453,8 +545,44 @@ export function MessagingInbox() {
                   <Text style={styles.personName}>{member.profile?.display_name || 'CREOVA member'}{member.user_id === viewerId ? ' (You)' : ''}</Text>
                   <Text style={styles.subtitle}>{member.profile?.username ? `@${member.profile.username} · ` : ''}{member.role === 'admin' ? 'Group admin' : 'Member'} · {member.membership_status === 'accepted' ? 'Joined' : member.membership_status === 'pending' ? 'Invited' : member.membership_status}</Text>
                 </View>
+                {isGroupAdmin && member.user_id !== viewerId && member.membership_status === 'accepted' && (
+                  <TouchableOpacity disabled={busy} onPress={() => { void changeGroupRole(member); }} style={styles.headerAction}>
+                    <Text style={styles.selectText}>{member.role === 'admin' ? 'Remove admin' : 'Make admin'}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ))}
+            {isGroupAdmin && (
+              <View style={{ gap: 8, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12 }}>
+                <Text style={styles.requestTitle}>Group administration</Text>
+                <TextInput value={groupRename} onChangeText={setGroupRename} placeholder={selectedConversation.title || 'New group name'} placeholderTextColor="#71819C" style={styles.searchInput} maxLength={80} />
+                <TouchableOpacity disabled={busy || !groupRename.trim()} onPress={() => { void saveGroupName(); }} style={[styles.primaryButton, (busy || !groupRename.trim()) && styles.disabledButton]}>
+                  <Text style={styles.primaryButtonText}>{busy ? 'Saving…' : 'Rename group'}</Text>
+                </TouchableOpacity>
+                <Text style={styles.subtitle}>Invite another CREOVA member</Text>
+                <View style={styles.searchRow}>
+                  <TextInput value={inviteSearchText} onChangeText={setInviteSearchText} onSubmitEditing={() => { void searchGroupInvitees(); }} placeholder="Search username" placeholderTextColor="#71819C" autoCapitalize="none" style={styles.searchInput} />
+                  <TouchableOpacity disabled={searchBusy} onPress={() => { void searchGroupInvitees(); }} style={styles.searchButton}>
+                    <Text style={styles.searchButtonText}>{searchBusy ? '…' : 'Find'}</Text>
+                  </TouchableOpacity>
+                </View>
+                {inviteResults.map(person => (
+                  <View key={person.id} style={styles.groupMemberRow}>
+                    <Avatar uri={person.avatar_url} label={person.display_name || person.username} size={32} />
+                    <View style={styles.headerCopy}>
+                      <Text style={styles.personName}>{person.display_name}</Text>
+                      <Text style={styles.subtitle}>@{person.username}</Text>
+                    </View>
+                    <TouchableOpacity disabled={busy} onPress={() => { void inviteMember(person); }} style={styles.headerAction}>
+                      <Text style={styles.selectText}>Invite</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+            <TouchableOpacity disabled={busy} onPress={confirmLeaveGroup} style={[styles.primaryButton, { backgroundColor: '#713044' }]}>
+              <Text style={styles.primaryButtonText}>Leave group</Text>
+            </TouchableOpacity>
           </View>
         )}
         {selectedConversation.myMembership === 'pending' && (
