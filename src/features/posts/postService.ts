@@ -17,6 +17,7 @@ export type CreovaPostMedia = {
   position: number;
   mediaType: 'image' | 'video';
   durationSeconds: number | null;
+  coverSignedUrl: string | null;
 };
 
 export type CreovaFeedPost = {
@@ -45,7 +46,7 @@ type RawFeedPost = {
   visibility: CreovaFeedPost['visibility'];
   created_at: string;
   author: CreovaFeedPost['author'];
-  media: { id: string; object_path: string; media_type: 'image' | 'video'; width: number | null; height: number | null; duration_seconds: number | null; position: number }[] | null;
+  media: { id: string; object_path: string; media_type: 'image' | 'video'; width: number | null; height: number | null; duration_seconds: number | null; position: number; cover_object_path: string | null }[] | null;
   likes: { user_id: string }[] | null;
   comments: { id: string }[] | null;
 };
@@ -183,6 +184,7 @@ export type PostMediaInput = {
   height: number;
   mediaType: 'image' | 'video';
   durationSeconds: number | null;
+  coverUri?: string | null;
 };
 
 export async function createPostWithMedia(input: {
@@ -220,13 +222,21 @@ export async function createPostWithMedia(input: {
   const fileName = `${input.media.mediaType}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.${extension}`;
   const objectPath = `${userId}/${postId}/${fileName}`;
 
+  let coverObjectPath: string | null = null;
   try {
     const uploadedBytes = await uploadMediaResumable(input.media.uri, objectPath, mimeType, input.media.fileSize, onProgress);
     if (uploadedBytes <= 0) throw new Error('Could not determine the selected media size. Please choose the file again.');
 
+    if (input.media.coverUri && input.media.mediaType === 'video') {
+      coverObjectPath = `${userId}/${postId}/cover-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+      const coverBytes = await uploadMediaResumable(input.media.coverUri, coverObjectPath, 'image/jpeg', null);
+      if (coverBytes <= 0) throw new Error('Could not upload the selected Reel cover. Choose another frame and try again.');
+    }
+
     const { error: metadataError } = await client.from('post_media').insert({
       post_id: postId,
       object_path: objectPath,
+      cover_object_path: coverObjectPath,
       media_type: input.media.mediaType,
       mime_type: mimeType,
       file_size_bytes: uploadedBytes,
@@ -237,7 +247,7 @@ export async function createPostWithMedia(input: {
     });
     if (metadataError) throw metadataError;
   } catch (error) {
-    await client.storage.from(MEDIA_BUCKET).remove([objectPath]);
+    await client.storage.from(MEDIA_BUCKET).remove([objectPath, ...(coverObjectPath ? [coverObjectPath] : [])]);
     await client.from('posts').delete().eq('id', postId);
     throw error;
   }
@@ -259,7 +269,7 @@ export async function createPostWithImage(input: {
 
 function hydratePostRows(rawPosts: RawFeedPost[], viewerId: string): Promise<CreovaFeedPost[]> {
   const client = requireSupabase();
-  const paths = rawPosts.flatMap(post => post.media?.map(media => media.object_path) ?? []);
+  const paths = rawPosts.flatMap(post => post.media?.flatMap(media => [media.object_path, ...(media.cover_object_path ? [media.cover_object_path] : [])]) ?? []);
   return (async () => {
     const signedByPath = new Map<string, string>();
     if (paths.length) {
@@ -288,6 +298,7 @@ function hydratePostRows(rawPosts: RawFeedPost[], viewerId: string): Promise<Cre
           position: item.position,
           mediaType: item.media_type,
           durationSeconds: item.duration_seconds,
+          coverSignedUrl: item.cover_object_path ? signedByPath.get(item.cover_object_path) ?? null : null,
         }] : [];
       }).sort((a, b) => a.position - b.position),
       likeCount: post.likes?.length ?? 0,
