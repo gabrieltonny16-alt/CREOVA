@@ -242,7 +242,7 @@ function StoryViewerModal({
             </ScrollView>
           </View>}
 
-          {!!message && <Text style={{ position: 'absolute', bottom: 18, left: 16, right: 16, color: '#FFFFFF', textAlign: 'center' }}>{message}</Text>}
+          {!!message && <Text style={{ position: 'absolute', bottom: group.isMine ? 18 : 112, left: 16, right: 16, color: '#FFFFFF', textAlign: 'center' }}>{message}</Text>}
         </View>
       </View>
     </Modal>
