@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
-import { Image, Modal, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
   createStory,
   deleteStory,
   getActiveStoryGroups,
   getStoryViewers,
+  getStoryEngagement,
+  sendStoryReply,
+  toggleStoryReaction,
   recordStoryView,
 } from './storyService';
 import type { CreovaStory, CreovaStoryGroup, CreovaStoryViewer } from './storyService';
@@ -40,6 +43,11 @@ function StoryViewerModal({
   const [viewers, setViewers] = useState<CreovaStoryViewer[]>([]);
   const [showViewers, setShowViewers] = useState(false);
   const [message, setMessage] = useState('');
+  const [reply, setReply] = useState('');
+  const [sendingReply, setSendingReply] = useState(false);
+  const [engagement, setEngagement] = useState<StoryEngagement>({ reactions: [], replies: [] });
+  const [showEngagement, setShowEngagement] = useState(false);
+  const [engagementBusy, setEngagementBusy] = useState(false);
   const group = groups[groupIndex];
   const story: CreovaStory | undefined = group?.stories[storyIndex];
 
@@ -63,6 +71,9 @@ function StoryViewerModal({
     if (!story) return;
     setProgress(0);
     setShowViewers(false);
+    setShowEngagement(false);
+    setEngagement({ reactions: [], replies: [] });
+    setReply('');
     setViewers([]);
     if (!group.isMine) {
       void recordStoryView(story.id).then(onViewed).catch(error => {
@@ -89,6 +100,46 @@ function StoryViewerModal({
       setShowViewers(true);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not load story viewers.');
+    }
+  }
+
+
+  async function reactToStory(reaction: '❤️' | '😂' | '😮' | '😢' | '🔥' | '👏') {
+    if (!story || group?.isMine || engagementBusy) return;
+    setEngagementBusy(true);
+    setMessage('');
+    try {
+      await toggleStoryReaction(story.id, reaction);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not send your reaction.');
+    } finally {
+      setEngagementBusy(false);
+    }
+  }
+
+  async function submitReply() {
+    if (!story || group?.isMine || sendingReply) return;
+    setSendingReply(true);
+    setMessage('');
+    try {
+      await sendStoryReply(story.id, reply);
+      setReply('');
+      setMessage('Reply sent.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not send your reply.');
+    } finally {
+      setSendingReply(false);
+    }
+  }
+
+  async function openEngagement() {
+    if (!story || !group?.isMine) return;
+    setMessage('');
+    try {
+      setEngagement(await getStoryEngagement(story.id));
+      setShowEngagement(true);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load story engagement.');
     }
   }
 
@@ -130,6 +181,7 @@ function StoryViewerModal({
                 <Text style={{ color: '#D0D8E8', fontSize: 10 }}>{new Date(story.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
               </View>
               {group.isMine && <TouchableOpacity onPress={openViewers} style={{ padding: 8 }}><Text style={{ color: '#FFFFFF', fontSize: 12 }}>◉ {story.viewCount}</Text></TouchableOpacity>}
+              {group.isMine && <TouchableOpacity onPress={openEngagement} style={{ padding: 8 }}><Text style={{ color: '#FFFFFF', fontSize: 12 }}>Replies</Text></TouchableOpacity>}
               {group.isMine && <TouchableOpacity onPress={removeCurrentStory} style={{ padding: 8 }}><Text style={{ color: '#FFFFFF', fontSize: 12 }}>Delete</Text></TouchableOpacity>}
               <TouchableOpacity onPress={onClose} style={{ padding: 8 }}><Text style={{ color: '#FFFFFF', fontSize: 24 }}>×</Text></TouchableOpacity>
             </View>
@@ -153,6 +205,43 @@ function StoryViewerModal({
               {!viewers.length && <Text style={{ color: MUTED, paddingVertical: 8 }}>No views yet.</Text>}
             </ScrollView>
           </View>}
+
+          {!group.isMine && <View style={{ position: 'absolute', left: 12, right: 12, bottom: 20, backgroundColor: 'rgba(10,16,29,0.94)', borderRadius: 16, padding: 12 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+              {(['❤️', '😂', '😮', '😢', '🔥', '👏'] as const).map(reaction => (
+                <TouchableOpacity key={reaction} disabled={engagementBusy} onPress={() => void reactToStory(reaction)} style={{ paddingHorizontal: 5, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 23 }}>{reaction}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput value={reply} onChangeText={setReply} placeholder="Reply to story…" placeholderTextColor={MUTED} maxLength={1000} multiline style={{ flex: 1, color: '#FFFFFF', backgroundColor: '#1A2740', borderRadius: 18, paddingHorizontal: 13, paddingVertical: 9, maxHeight: 76, fontSize: 13 }} />
+              <TouchableOpacity disabled={sendingReply || !reply.trim()} onPress={() => void submitReply()} style={{ backgroundColor: BLUE, borderRadius: 16, paddingHorizontal: 13, paddingVertical: 10, opacity: sendingReply || !reply.trim() ? 0.5 : 1 }}>
+                <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 12 }}>{sendingReply ? '…' : 'Send'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>}
+          {showEngagement && <View style={{ position: 'absolute', left: 12, right: 12, bottom: 24, maxHeight: '58%', backgroundColor: '#111A2B', borderRadius: 16, padding: 14 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '900' }}>Story engagement · {engagement.reactions.length} reactions · {engagement.replies.length} replies</Text>
+              <TouchableOpacity onPress={() => setShowEngagement(false)}><Text style={{ color: BLUE, fontWeight: '800' }}>Close</Text></TouchableOpacity>
+            </View>
+            <ScrollView>
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', marginBottom: 6 }}>Reactions</Text>
+              <Text style={{ color: MUTED, marginBottom: 12 }}>{(['❤️', '😂', '😮', '😢', '🔥', '👏'] as const).map(emoji => {
+                const count = engagement.reactions.filter(item => item.reaction === emoji).length;
+                return count ? `${emoji} ${count}` : '';
+              }).filter(Boolean).join('   ') || 'No reactions yet.'}</Text>
+              <Text style={{ color: '#FFFFFF', fontWeight: '800', marginBottom: 6 }}>Replies</Text>
+              {engagement.replies.map(item => <View key={item.id} style={{ paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#263650' }}>
+                <Text style={{ color: '#FFFFFF', fontWeight: '800' }}>{item.sender?.display_name || 'CREOVA member'} <Text style={{ color: MUTED, fontWeight: '400' }}>@{item.sender?.username || 'member'}</Text></Text>
+                <Text style={{ color: '#E5ECF8', marginTop: 3 }}>{item.body}</Text>
+                <Text style={{ color: MUTED, fontSize: 10, marginTop: 3 }}>{new Date(item.created_at).toLocaleString()}</Text>
+              </View>)}
+              {!engagement.replies.length && <Text style={{ color: MUTED }}>No replies yet.</Text>}
+            </ScrollView>
+          </View>}
+
           {!!message && <Text style={{ position: 'absolute', bottom: 18, left: 16, right: 16, color: '#FFFFFF', textAlign: 'center' }}>{message}</Text>}
         </View>
       </View>
