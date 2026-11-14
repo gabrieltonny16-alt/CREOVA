@@ -905,7 +905,7 @@ function CreateScreen() {
       </View>
       {selectedMedia && <View style={styles.imagePreviewWrap}>
         {selectedMedia.type === 'video'
-          ? <View style={[styles.imagePreview, styles.videoPreview]}><Text style={styles.videoPreviewIcon}>▶</Text><Text style={styles.videoPreviewText}>EDITED REEL · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View>
+          ? <View style={[styles.imagePreview, { overflow: 'hidden' }]}><ReelVideo uri={selectedMedia.uri} active /><View style={{ position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.72)' }}><Text style={styles.videoPreviewText}>REEL PREVIEW · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View></View>
           : <Image source={{ uri: selectedMedia.uri }} style={styles.imagePreview} resizeMode="cover" />}
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
           {selectedMedia.type === 'video' && <TouchableOpacity onPress={() => editVideo(selectedMedia)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Trim again</Text></TouchableOpacity>}
