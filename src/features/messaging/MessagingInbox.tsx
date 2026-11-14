@@ -150,9 +150,12 @@ export function MessagingInbox() {
     if (selectedConversation?.myMembership === 'accepted') {
       void markConversationRead(selectedId).catch(() => undefined);
     }
-    const channel = subscribeToConversationMessages(selectedId, () => {
+    const channel = subscribeToConversationMessages(selectedId, changeType => {
       void loadMessages(selectedId);
       void loadConversations();
+      if (changeType === 'message' && selectedConversation?.myMembership === 'accepted') {
+        void markConversationRead(selectedId).catch(() => undefined);
+      }
     });
     return () => {
       if (supabase) void supabase.removeChannel(channel);
@@ -596,10 +599,15 @@ export function MessagingInbox() {
                 ? 'Message request · Tap to review'
                 : item.latestMessage?.deleted_at
                   ? 'Message deleted'
-                  : item.latestMessage?.body || 'Start the conversation'}
+                  : item.latestMessage?.body || (item.latestMessage?.attachment_type === 'image' ? '📷 Photo' : item.latestMessage?.attachment_type === 'video' ? '▶ Video' : item.latestMessage?.attachment_type === 'audio' ? '🎙 Voice message' : 'Start the conversation')}
             </Text>
           </View>
           {item.myMembership === 'pending' && <View style={styles.requestDot} />}
+          {item.myMembership === 'accepted' && item.latestMessage && item.latestMessage.sender_id !== viewerId && (() => {
+            const ownMember = item.members.find(member => member.user_id === viewerId);
+            const unread = !ownMember?.last_read_at || new Date(item.latestMessage.created_at).getTime() > new Date(ownMember.last_read_at).getTime();
+            return unread ? <View style={styles.unreadDot} /> : null;
+          })()}
         </TouchableOpacity>
       ))}
     </View>
@@ -631,6 +639,7 @@ const styles = StyleSheet.create({
   previewText: { color: COLORS.muted, fontSize: 10 },
   messageTime: { color: COLORS.muted, fontSize: 9 },
   requestDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.blue },
+  unreadDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#3985FF', borderWidth: 1, borderColor: '#A7C6FF' },
   emptyCard: { alignItems: 'center', gap: 12, padding: 22, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   emptyTitle: { color: COLORS.text, fontSize: 15, fontWeight: '900', textAlign: 'center' },
   muted: { color: COLORS.muted, fontSize: 11, lineHeight: 18 },
