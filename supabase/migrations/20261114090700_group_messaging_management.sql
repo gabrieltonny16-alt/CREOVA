@@ -36,7 +36,7 @@ begin
       and m.membership_status in ('accepted', 'pending')
   );
   if v_existing_count + v_new_count > 50 then raise exception 'A group can have up to 50 active or invited members'; end if;
-  foreach v_member_id in array (select array_agg(distinct x) from unnest(p_member_ids) x) loop
+  for v_member_id in select distinct member_id from unnest(p_member_ids) as members(member_id) loop
     if v_member_id <> v_user_id then
       insert into public.conversation_members (
         conversation_id, user_id, role, membership_status, invited_by
@@ -151,7 +151,7 @@ end;
 $$;
 
 revoke all on function public.creova_invite_group_members(uuid, uuid[]) from public, anon;
-revoke all on function public.creova_set_group_member_role(uuid, text) from public, anon;
+revoke all on function public.creova_set_group_member_role(uuid, uuid, text) from public, anon;
 revoke all on function public.creova_rename_group(uuid, text) from public, anon;
 revoke all on function public.creova_leave_group(uuid) from public, anon;
 grant execute on function public.creova_invite_group_members(uuid, uuid[]) to authenticated;
