@@ -71,16 +71,26 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
   const client = requireSupabase();
   const viewerId = await getViewerId();
 
+  const { data: memberships, error: membershipError } = await client
+    .from('conversation_members')
+    .select('conversation_id, membership_status')
+    .eq('user_id', viewerId)
+    .in('membership_status', ['accepted', 'pending']);
+
+  if (membershipError) throw membershipError;
+  const conversationIds = (memberships ?? []).map(row => row.conversation_id);
+  if (!conversationIds.length) return [];
+
   const { data, error } = await client
     .from('conversations')
     .select(`
       id, kind, title, created_by, created_at, last_message_at,
-      members:conversation_members!inner(
+      members:conversation_members(
         user_id, membership_status, role,
         profile:profiles!conversation_members_user_id_fkey(id, username, display_name, avatar_url)
       )
     `)
-    .eq('members.user_id', viewerId)
+    .in('id', conversationIds)
     .order('last_message_at', { ascending: false })
     .limit(50);
 
@@ -88,13 +98,12 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
   const rows = (data ?? []) as unknown as RawConversation[];
   if (!rows.length) return [];
 
-  const conversationIds = rows.map(row => row.id);
   const { data: messageRows, error: messagesError } = await client
     .from('conversation_messages')
     .select('id, conversation_id, sender_id, body, created_at, deleted_at')
-    .in('conversation_id', conversationIds)
+    .in('conversation_id', rows.map(row => row.id))
     .order('created_at', { ascending: false })
-    .limit(Math.min(conversationIds.length * 5, 250));
+    .limit(Math.min(rows.length * 5, 250));
 
   if (messagesError) throw messagesError;
 
@@ -111,14 +120,15 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
     }
   }
 
-  return rows.map(row => {
-    const ownMembership = row.members.find(member => member.user_id === viewerId);
-    return {
-      ...row,
-      latestMessage: latestByConversation.get(row.id) ?? null,
-      myMembership: ownMembership?.membership_status ?? 'left',
-    };
-  });
+  const membershipByConversation = new Map(
+    (memberships ?? []).map(row => [row.conversation_id, row.membership_status]),
+  );
+
+  return rows.map(row => ({
+    ...row,
+    latestMessage: latestByConversation.get(row.id) ?? null,
+    myMembership: membershipByConversation.get(row.id) ?? 'left',
+  }));
 }
 
 export async function getConversationMessages(
@@ -264,14 +274,7 @@ export async function setConversationMessageReaction(
     .maybeSingle();
 
   if (lookupError) throw lookupError;
-  if (existing?.emoji === emoji) {
-    const { error } = await client
-      .from('conversation_message_reactions')
-      .delete()
-      .eq('id', existing.id);
-    if (error) throw error;
-    return;
-  }
+  if (existing?.emoji === emoji) return;
 
   if (existing) {
     const { error } = await client
