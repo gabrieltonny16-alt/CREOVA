@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
+import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import {
   Alert,
   Image,
@@ -20,6 +23,7 @@ import {
   getMyConversations,
   markConversationRead,
   sendTextMessage,
+  sendMediaMessage,
   setConversationMessageReaction,
   startDirectConversation,
   subscribeToConversationMessages,
@@ -38,6 +42,31 @@ const COLORS = {
   blue: '#3985FF',
   softBlue: '#172D55',
 };
+
+function ChatVideoAttachment({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, instance => { instance.loop = false; });
+  return <VideoView player={player} style={styles.attachmentVideo} nativeControls />;
+}
+
+function VoiceNotePlayer({ uri }: { uri: string }) {
+  const player = useAudioPlayer(uri, { updateInterval: 500 });
+  const status = useAudioPlayerStatus(player);
+  const format = (seconds: number) => {
+    const safe = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+    return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
+  };
+  return (
+    <View style={styles.voiceNote}>
+      <TouchableOpacity onPress={() => status.playing ? player.pause() : player.play()} style={styles.voicePlay}>
+        <Text style={styles.voicePlayText}>{status.playing ? 'Ⅱ' : '▶'}</Text>
+      </TouchableOpacity>
+      <View style={styles.voiceTrack}>
+        <View style={styles.voiceTrackLine} />
+        <Text style={styles.voiceDuration}>{format(status.currentTime)} / {format(status.duration)}</Text>
+      </View>
+    </View>
+  );
+}
 
 function Avatar({ uri, label, size = 44 }: { uri: string | null; label: string; size?: number }) {
   return (
@@ -66,6 +95,14 @@ export function MessagingInbox() {
   const [searchBusy, setSearchBusy] = useState(false);
   const [newRecipient, setNewRecipient] = useState<SearchProfile | null>(null);
   const [filter, setFilter] = useState<'All' | 'Requests'>('All');
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorderState = useAudioRecorderState(audioRecorder, 500);
+
+  useEffect(() => {
+    if (recorderState.isRecording && recorderState.durationMillis >= 120000) {
+      void stopVoiceRecording();
+    }
+  }, [recorderState.isRecording, recorderState.durationMillis]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -217,6 +254,93 @@ export function MessagingInbox() {
     ]);
   }
 
+  async function pickChatMedia() {
+    if (!selectedId || selectedConversation?.myMembership !== 'accepted' || busy || recorderState.isRecording) return;
+    setNotice('');
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Photo access needed', 'Allow CREOVA to access your photos and videos to attach them to a message.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images', 'videos'],
+        allowsEditing: false,
+        quality: 0.85,
+        videoMaxDuration: 120,
+      });
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      const attachmentType = asset.type === 'video' ? 'video' : 'image';
+      const mimeType = asset.mimeType ?? (attachmentType === 'video' ? 'video/mp4' : 'image/jpeg');
+      const extension = mimeType.split('/')[1]?.replace('quicktime', 'mov') ?? (attachmentType === 'video' ? 'mp4' : 'jpg');
+      setBusy(true);
+      await sendMediaMessage({
+        conversationId: selectedId,
+        uri: asset.uri,
+        fileName: asset.fileName ?? `creova-${attachmentType}-${Date.now()}.${extension}`,
+        mimeType,
+        fileSize: asset.fileSize ?? null,
+        attachmentType,
+        durationMs: asset.duration ?? null,
+      });
+      await loadMessages(selectedId);
+      await loadConversations();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not attach this media.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function startVoiceRecording() {
+    if (!selectedId || selectedConversation?.myMembership !== 'accepted' || busy || recorderState.isRecording) return;
+    setNotice('');
+    try {
+      const permission = await AudioModule.requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Microphone access needed', 'Allow CREOVA to use your microphone to record a voice note.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      setNotice('Recording voice note… tap Stop when you are finished.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not start voice recording.');
+    }
+  }
+
+  async function stopVoiceRecording() {
+    if (!recorderState.isRecording || busy) return;
+    const durationMs = Math.min(120000, Math.round(recorderState.durationMillis));
+    setBusy(true);
+    setNotice('');
+    try {
+      await audioRecorder.stop();
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      const uri = audioRecorder.uri;
+      if (!uri || durationMs < 500) throw new Error('The voice note was too short. Record at least half a second.');
+      if (!selectedId) throw new Error('Open a conversation before sending a voice note.');
+      await sendMediaMessage({
+        conversationId: selectedId,
+        uri,
+        fileName: `voice-note-${Date.now()}.m4a`,
+        mimeType: 'audio/mp4',
+        fileSize: recorderState.fileSize || null,
+        attachmentType: 'audio',
+        durationMs,
+      });
+      await loadMessages(selectedId);
+      await loadConversations();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not send this voice note.');
+    } finally {
+      setBusy(false);
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true }).catch(() => undefined);
+    }
+  }
+
   async function acceptRequest() {
     if (!selectedId || busy) return;
     setBusy(true);
@@ -282,12 +406,25 @@ export function MessagingInbox() {
             return (
               <View key={message.id} style={[styles.messageRow, own && styles.messageRowOwn]}>
                 <View style={[styles.messageBubble, own ? styles.messageBubbleOwn : styles.messageBubbleOther]}>
-                  <Text style={[styles.messageText, own && styles.messageTextOwn]}>
-                    {message.deleted_at ? 'This message was deleted' : message.body || 'Attachment'}
-                  </Text>
+                  {message.attachment_url && !message.deleted_at && message.attachment_type === 'image' && (
+                    <Image source={{ uri: message.attachment_url }} style={styles.attachmentImage} resizeMode="cover" />
+                  )}
+                  {message.attachment_url && !message.deleted_at && message.attachment_type === 'video' && (
+                    <ChatVideoAttachment uri={message.attachment_url} />
+                  )}
+                  {message.attachment_url && !message.deleted_at && message.attachment_type === 'audio' && (
+                    <VoiceNotePlayer uri={message.attachment_url} />
+                  )}
+                  {!!message.body && (
+                    <Text style={[styles.messageText, own && styles.messageTextOwn]}>{message.deleted_at ? 'This message was deleted' : message.body}</Text>
+                  )}
+                  {!message.body && !message.attachment_url && (
+                    <Text style={[styles.messageText, own && styles.messageTextOwn]}>{message.deleted_at ? 'This message was deleted' : 'Attachment unavailable'}</Text>
+                  )}
                   <Text style={[styles.messageTime, own && styles.messageTimeOwn]}>
                     {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {message.edited_at ? ' · edited' : ''}
+                    {own && !message.deleted_at ? (otherMembers.length > 0 && otherMembers.every(member => member.last_read_at && new Date(member.last_read_at).getTime() >= new Date(message.created_at).getTime()) ? ' · Seen' : ' · Sent') : ''}
                   </Text>
                 </View>
                 <View style={[styles.messageExtras, own && styles.messageExtrasOwn]}>
@@ -318,6 +455,16 @@ export function MessagingInbox() {
         </ScrollView>
         {selectedConversation.myMembership === 'accepted' && (
           <View style={styles.composer}>
+            {!editingMessageId && (
+              <TouchableOpacity disabled={busy || recorderState.isRecording} onPress={pickChatMedia} style={styles.composerTool}>
+                <Text style={styles.composerToolText}>＋</Text>
+              </TouchableOpacity>
+            )}
+            {!editingMessageId && (
+              <TouchableOpacity disabled={busy} onPress={() => recorderState.isRecording ? void stopVoiceRecording() : void startVoiceRecording()} style={[styles.composerTool, recorderState.isRecording && styles.recordingTool]}>
+                <Text style={styles.composerToolText}>{recorderState.isRecording ? '■' : '🎙'}</Text>
+              </TouchableOpacity>
+            )}
             {editingMessageId && <TouchableOpacity onPress={() => { setEditingMessageId(null); setDraft(''); }} style={styles.cancelEdit}><Text style={styles.cancelEditText}>Cancel edit</Text></TouchableOpacity>}
             <TextInput
               value={draft}
@@ -330,7 +477,7 @@ export function MessagingInbox() {
               editable={!busy}
             />
             <TouchableOpacity disabled={busy || !draft.trim()} onPress={sendMessage} style={[styles.sendButton, (busy || !draft.trim()) && styles.disabledButton]}>
-              <Text style={styles.sendButtonText}>{busy ? '…' : editingMessageId ? 'Save' : 'Send'}</Text>
+              <Text style={styles.sendButtonText}>{busy ? '…' : editingMessageId ? 'Save' : recorderState.isRecording ? `${Math.floor(recorderState.durationMillis / 1000)}s` : 'Send'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -507,6 +654,14 @@ const styles = StyleSheet.create({
   messageBubbleOther: { backgroundColor: COLORS.raised, borderBottomLeftRadius: 5 },
   messageText: { color: COLORS.text, fontSize: 12, lineHeight: 18 },
   messageTextOwn: { color: '#FFFFFF' },
+  attachmentImage: { width: 220, height: 190, borderRadius: 12, backgroundColor: COLORS.raised },
+  attachmentVideo: { width: 230, height: 180, borderRadius: 12, backgroundColor: '#000000' },
+  voiceNote: { minWidth: 190, maxWidth: 230, flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 5 },
+  voicePlay: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  voicePlayText: { color: COLORS.blue, fontSize: 14, fontWeight: '900' },
+  voiceTrack: { flex: 1, gap: 5 },
+  voiceTrackLine: { height: 3, borderRadius: 2, backgroundColor: '#A7C6FF' },
+  voiceDuration: { color: COLORS.muted, fontSize: 9 },
   messageTimeOwn: { color: '#D9E7FF' },
   messageExtras: { maxWidth: '84%', gap: 5, marginTop: 3, alignSelf: 'flex-start' },
   messageExtrasOwn: { alignSelf: 'flex-end' },
@@ -521,7 +676,10 @@ const styles = StyleSheet.create({
   messageActionDanger: { color: '#FF9BAA', fontSize: 9, fontWeight: '800' },
   cancelEdit: { alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 5 },
   cancelEditText: { color: '#A7C6FF', fontSize: 10, fontWeight: '800' },
-  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border },
+  composer: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: COLORS.border },
+  composerTool: { width: 36, height: 42, borderRadius: 12, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center' },
+  composerToolText: { color: '#A7C6FF', fontSize: 16, fontWeight: '900' },
+  recordingTool: { backgroundColor: '#572334', borderColor: '#FF6688' },
   composerInput: { flex: 1, minHeight: 44, maxHeight: 130, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, color: COLORS.text, fontSize: 12, textAlignVertical: 'top' },
   sendButton: { backgroundColor: COLORS.blue, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 13 },
   sendButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
