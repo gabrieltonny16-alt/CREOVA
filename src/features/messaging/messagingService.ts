@@ -30,6 +30,7 @@ export type ConversationPreview = {
     body: string | null;
     created_at: string;
     deleted_at: string | null;
+    attachment_type: 'image' | 'video' | 'audio' | null;
   } | null;
   myMembership: ConversationMember['membership_status'];
 };
@@ -107,7 +108,7 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
 
   const { data: messageRows, error: messagesError } = await client
     .from('conversation_messages')
-    .select('id, conversation_id, sender_id, body, created_at, deleted_at')
+    .select('id, conversation_id, sender_id, body, created_at, deleted_at, attachment_type')
     .in('conversation_id', rows.map(row => row.id))
     .order('created_at', { ascending: false })
     .limit(Math.min(rows.length * 5, 250));
@@ -123,6 +124,7 @@ export async function getMyConversations(): Promise<ConversationPreview[]> {
         body: message.body,
         created_at: message.created_at,
         deleted_at: message.deleted_at,
+        attachment_type: message.attachment_type,
       });
     }
   }
@@ -395,7 +397,7 @@ export async function setConversationMessageReaction(
 
 export function subscribeToConversationMessages(
   conversationId: string,
-  onChange: () => void,
+  onChange: (changeType: 'message' | 'member') => void,
 ): RealtimeChannel {
   const client = requireSupabase();
   return client
@@ -408,7 +410,7 @@ export function subscribeToConversationMessages(
         table: 'conversation_messages',
         filter: `conversation_id=eq.${conversationId}`,
       },
-      onChange,
+      () => onChange('message'),
     )
     .on(
       'postgres_changes',
@@ -418,7 +420,7 @@ export function subscribeToConversationMessages(
         table: 'conversation_members',
         filter: `conversation_id=eq.${conversationId}`,
       },
-      onChange,
+      () => onChange('member'),
     )
     .subscribe();
 }
