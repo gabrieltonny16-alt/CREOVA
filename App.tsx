@@ -1611,7 +1611,7 @@ const styles = StyleSheet.create({
   commentComposerInput: { minHeight: 76, maxHeight: 150, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: '#0B1322', color: COLORS.text, padding: 12, fontSize: 12, lineHeight: 18, textAlignVertical: 'top' },
   commentComposerFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   commentCounter: { color: COLORS.muted, fontSize: 9 },
-  commentSendButton: { minHeight: 34, paddingHorizontal: 15, borderRadius: 10, backgroundColor: COLORS.accent, alignItems: 'center', justifyContent: 'center' },
+  commentSendButton: { minHeight: 34, paddingHorizontal: 15, borderRadius: 10, backgroundColor: COLORS.blue, alignItems: 'center', justifyContent: 'center' },
   commentSendText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
   postDetailCard: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 15, gap: 14 },
   detailImage: { width: '100%', aspectRatio: 1, borderRadius: 13, backgroundColor: '#050A13' },
