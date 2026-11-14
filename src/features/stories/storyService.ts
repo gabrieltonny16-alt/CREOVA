@@ -87,7 +87,8 @@ export async function createStory(input: StoryMediaInput & { caption?: string; v
   if (caption.length > 500) throw new Error('Story captions can be up to 500 characters.');
 
   const extension = input.mimeType.split('/')[1]?.replace('quicktime', 'mov') ?? (mediaType === 'image' ? 'jpg' : 'mp4');
-  const objectPath = `${auth.user.id}/${crypto.randomUUID()}.${extension}`;
+  const objectId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  const objectPath = `${auth.user.id}/${objectId}.${extension}`;
   const fileResponse = await fetch(input.uri);
   if (!fileResponse.ok) throw new Error('Could not read the selected story media.');
   const file = await fileResponse.blob();
