@@ -722,7 +722,7 @@ function CreateScreen() {
   const [microphonePermission, requestMicrophonePermission] = useMicrophonePermissions();
 
   useEffect(() => {
-    const finished = VideoTrim.onFinishTrimming(({ outputPath, duration }) => {
+    const finished = VideoTrim.onFinishTrimming(({ outputPath, duration }: { outputPath: string; duration: number }) => {
       const original = pendingVideoRef.current;
       if (!original) return;
       const cleanPath = outputPath.startsWith('file://') ? outputPath : 'file://' + outputPath;
@@ -732,7 +732,7 @@ function CreateScreen() {
         uri: cleanPath,
         type: 'video',
         mimeType: 'video/mp4',
-        fileSize: null,
+        fileSize: undefined,
         duration,
         width: original.width || 1080,
         height: original.height || 1920,
@@ -744,7 +744,7 @@ function CreateScreen() {
       pendingVideoRef.current = null;
       setNotice('Video editing cancelled. Your original video has not been changed.');
     });
-    const failed = VideoTrim.onError(({ message }) => {
+    const failed = VideoTrim.onError(({ message }: { message: string }) => {
       pendingVideoRef.current = null;
       setNotice(message || 'The video editor could not open this file.');
     });
