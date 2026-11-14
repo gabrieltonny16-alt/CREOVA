@@ -306,6 +306,26 @@ export async function startDirectConversation(
   return data;
 }
 
+export async function startGroupConversation(memberIds: string[], title: string, firstMessage: string): Promise<string> {
+  const client = requireSupabase();
+  const viewerId = await getViewerId();
+  const cleanMessage = firstMessage.trim();
+  const selectedIds = Array.from(new Set([viewerId, ...memberIds].filter(Boolean)));
+  const cleanTitle = title.trim();
+  if (selectedIds.length < 3) throw new Error('Choose at least two other members for a group.');
+  if (selectedIds.length > 50) throw new Error('A group can have up to 50 members, including you.');
+  if (!cleanMessage) throw new Error('Write a first message for the group.');
+  if (cleanMessage.length > MAX_MESSAGE_LENGTH) throw new Error('Messages can be up to 5,000 characters.');
+  if (cleanTitle.length > 80) throw new Error('Group names can be up to 80 characters.');
+  const { data, error } = await client.rpc('creova_create_conversation', {
+    p_kind: 'group', p_member_ids: selectedIds, p_title: cleanTitle || null,
+  });
+  if (error) throw error;
+  if (typeof data !== 'string') throw new Error('CREOVA could not create this group.');
+  await sendTextMessage(data, cleanMessage);
+  return data;
+}
+
 export async function acceptConversationRequest(conversationId: string): Promise<void> {
   const client = requireSupabase();
   const viewerId = await getViewerId();
