@@ -324,7 +324,7 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
   const authorIds = [auth.user.id, ...(follows ?? []).map(row => row.following_id)];
   const { data, error } = await client
     .from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position, cover_object_path), likes:post_likes(user_id), comments:post_comments(id)')
     .in('author_id', authorIds)
     .order('created_at', { ascending: false })
     .limit(30);
@@ -342,7 +342,7 @@ export async function getReelsFeed(limit = 60): Promise<CreovaFeedPost[]> {
   if (!auth.user) throw new Error('Sign in to watch Reels.');
   const { data, error } = await client
     .from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media!inner(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media!inner(id, object_path, media_type, width, height, duration_seconds, position, cover_object_path), likes:post_likes(user_id), comments:post_comments(id)')
     .eq('media.media_type', 'video')
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
@@ -488,7 +488,7 @@ export async function getProfilePosts(profileId: string, limit = 60): Promise<Cr
   if (!auth.user) throw new Error('Sign in to view profile posts.');
 
   const { data, error } = await client.from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position, cover_object_path), likes:post_likes(user_id), comments:post_comments(id)')
     .eq('author_id', profileId)
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
@@ -505,7 +505,7 @@ export async function getPostById(postId: string): Promise<CreovaFeedPost> {
   if (!auth.user) throw new Error('Sign in to view this post.');
 
   const { data, error } = await client.from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position, cover_object_path), likes:post_likes(user_id), comments:post_comments(id)')
     .eq('id', postId)
     .single();
   if (error) throw error;
