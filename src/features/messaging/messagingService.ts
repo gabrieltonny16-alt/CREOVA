@@ -148,11 +148,13 @@ export async function getConversationMessages(
       reactions:conversation_message_reactions(user_id, emoji)
     `)
     .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: true })
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 200));
 
   if (error) throw error;
-  return (data ?? []) as unknown as ConversationMessage[];
+  // Fetch the newest page first, then display it in chronological order.
+  return ((data ?? []).reverse()) as unknown as ConversationMessage[];
 }
 
 export async function sendTextMessage(conversationId: string, body: string): Promise<void> {
