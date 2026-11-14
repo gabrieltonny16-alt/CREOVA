@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import VideoTrim, { showEditor } from 'react-native-video-trim';
+import VideoTrim, { getFrameAt, showEditor } from 'react-native-video-trim';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuthGate } from './src/features/auth/AuthGate';
 import { getMyProfile, getMyProfileStats, searchProfiles, followProfile, unfollowProfile, getProfileByUsername, getProfileConnections, updateMyProfile, uploadMyAvatar, respondToFollowRequest } from './src/features/profile/profileService';
@@ -703,6 +703,8 @@ function CreateScreen() {
   const [postType, setPostType] = useState<'post' | 'anchor' | 'iteration'>('post');
   const [visibility, setVisibility] = useState<'public' | 'followers'>('public');
   const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [selectedCoverUri, setSelectedCoverUri] = useState<string | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [notice, setNotice] = useState('');
@@ -720,6 +722,7 @@ function CreateScreen() {
       const original = pendingVideoRef.current;
       if (!original) return;
       const cleanPath = outputPath.startsWith('file://') ? outputPath : 'file://' + outputPath;
+      setSelectedCoverUri(null);
       setSelectedMedia({
         ...original,
         uri: cleanPath,
@@ -761,6 +764,31 @@ function CreateScreen() {
     } catch (error) {
       pendingVideoRef.current = null;
       setNotice(error instanceof Error ? error.message : 'Could not open the video editor.');
+    }
+  }
+
+  async function chooseCoverFrame(position: 'start' | 'middle' | 'end') {
+    if (!selectedMedia || selectedMedia.type !== 'video' || coverBusy) return;
+    setCoverBusy(true);
+    setNotice('Extracting your cover frame…');
+    try {
+      const durationMs = selectedMedia.duration ?? 0;
+      const time = position === 'start' ? 0
+        : position === 'middle' ? Math.floor(durationMs / 2)
+        : Math.max(0, durationMs - 500);
+      const frame = await getFrameAt(selectedMedia.uri, {
+        time,
+        format: 'jpeg',
+        quality: 88,
+        maxWidth: 720,
+      });
+      const uri = frame.outputPath.startsWith('file://') ? frame.outputPath : 'file://' + frame.outputPath;
+      setSelectedCoverUri(uri);
+      setNotice('Cover frame selected. It will be uploaded privately with your Reel.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not extract that cover frame.');
+    } finally {
+      setCoverBusy(false);
     }
   }
 
@@ -869,6 +897,7 @@ function CreateScreen() {
             height: selectedMedia.height,
             mediaType: selectedMedia.type === 'video' || selectedMedia.mimeType?.startsWith('video/') ? 'video' : 'image',
             durationSeconds: selectedMedia.type === 'video' && selectedMedia.duration ? selectedMedia.duration / 1000 : null,
+            coverUri: selectedMedia.type === 'video' ? selectedCoverUri : null,
           },
         }, setUploadProgress);
       } else {
@@ -876,6 +905,7 @@ function CreateScreen() {
       }
       setCaption('');
       setSelectedMedia(null);
+      setSelectedCoverUri(null);
       setNotice('Published. Your post is now in your CREOVA feed.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Could not publish your post.');
@@ -905,11 +935,21 @@ function CreateScreen() {
       </View>
       {selectedMedia && <View style={styles.imagePreviewWrap}>
         {selectedMedia.type === 'video'
-          ? <View style={[styles.imagePreview, { overflow: 'hidden' }]}><ReelVideo uri={selectedMedia.uri} active /><View style={{ position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.72)' }}><Text style={styles.videoPreviewText}>REEL PREVIEW · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View></View>
+          ? <View style={[styles.imagePreview, { overflow: 'hidden' }]}>{selectedCoverUri
+              ? <Image source={{ uri: selectedCoverUri }} style={styles.imagePreview} resizeMode="cover" />
+              : <ReelVideo uri={selectedMedia.uri} active />}
+            <View style={{ position: 'absolute', left: 10, bottom: 10, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(0,0,0,0.72)' }}><Text style={styles.videoPreviewText}>{selectedCoverUri ? 'SELECTED REEL COVER' : 'REEL PREVIEW'} · {Math.round((selectedMedia.duration ?? 0) / 1000)} SEC</Text></View>
+          </View>
           : <Image source={{ uri: selectedMedia.uri }} style={styles.imagePreview} resizeMode="cover" />}
         <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-          {selectedMedia.type === 'video' && <TouchableOpacity onPress={() => editVideo(selectedMedia)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Trim again</Text></TouchableOpacity>}
-          <TouchableOpacity onPress={() => setSelectedMedia(null)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Remove media</Text></TouchableOpacity>
+          {selectedMedia.type === 'video' && <>
+            <TouchableOpacity onPress={() => editVideo(selectedMedia)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Trim again</Text></TouchableOpacity>
+            <TouchableOpacity disabled={coverBusy} onPress={() => chooseCoverFrame('start')} style={styles.removeImageButton}><Text style={styles.removeImageText}>Opening frame</Text></TouchableOpacity>
+            <TouchableOpacity disabled={coverBusy} onPress={() => chooseCoverFrame('middle')} style={styles.removeImageButton}><Text style={styles.removeImageText}>Middle frame</Text></TouchableOpacity>
+            <TouchableOpacity disabled={coverBusy} onPress={() => chooseCoverFrame('end')} style={styles.removeImageButton}><Text style={styles.removeImageText}>Ending frame</Text></TouchableOpacity>
+            {selectedCoverUri && <TouchableOpacity onPress={() => setSelectedCoverUri(null)} style={styles.removeImageButton}><Text style={styles.removeImageText}>Reset cover</Text></TouchableOpacity>}
+          </>}
+          <TouchableOpacity onPress={() => { setSelectedMedia(null); setSelectedCoverUri(null); }} style={styles.removeImageButton}><Text style={styles.removeImageText}>Remove media</Text></TouchableOpacity>
         </View>
       </View>}
       <Text style={styles.editLabel}>POST FORMAT</Text>
