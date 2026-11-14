@@ -1366,13 +1366,26 @@ function MainApp() {
 
   const openProfile = (username: string) => {
     setShowActivity(false);
+    setSelectedPostId(null);
     setSelectedProfileUsername(username);
     setActiveTab('Discover');
   };
 
+  const openPost = (postId: string) => {
+    setShowActivity(false);
+    setSelectedProfileUsername(null);
+    setSelectedPostId(postId);
+  };
+
+  const openActivity = () => {
+    setSelectedPostId(null);
+    setSelectedProfileUsername(null);
+    setShowActivity(true);
+  };
+
   const renderScreen = () => {
     if (showActivity) {
-      return <InboxScreen onOpenProfile={openProfile} onOpenPost={setSelectedPostId} onUnreadCountChange={setUnreadNotificationCount} onBack={() => setShowActivity(false)} />;
+      return <InboxScreen onOpenProfile={openProfile} onOpenPost={openPost} onUnreadCountChange={setUnreadNotificationCount} onBack={() => setShowActivity(false)} />;
     }
     if (selectedPostId) {
       return <PostDetailScreen postId={selectedPostId} onBack={() => setSelectedPostId(null)} />;
@@ -1401,14 +1414,14 @@ function MainApp() {
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
           {isWide && <Text style={styles.topBarNote}>THE SOCIAL NETWORK BUILT FOR EVOLUTION</Text>}
-          <TouchableOpacity onPress={() => setShowActivity(true)} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Notifications">
+          <TouchableOpacity onPress={openActivity} style={styles.topBarAction accessibilityRole="button" accessibilityLabel="Notifications">
             <Text style={styles.topBarActionText}>♢</Text>
             {unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
           </TouchableOpacity>
         </View>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
-            {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
+            {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { setShowActivity(false); setSelectedPostId(null); setSelectedProfileUsername(null); setActiveTab(tab.key); }} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
               <View style={styles.navIconWrap}>
                 <Text style={[styles.sideNavSymbol, activeTab === tab.key && styles.activeText]}>{tab.symbol}</Text>
                 </View>
@@ -1420,7 +1433,7 @@ function MainApp() {
           </ScrollView>
         </View>
         {!isWide && <View style={styles.bottomNav}>
-          {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
+          {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { setShowActivity(false); setSelectedPostId(null); setSelectedProfileUsername(null); setActiveTab(tab.key); }} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
             <View style={styles.navIconWrap}>
               <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
               {tab.key === 'Inbox' && unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
@@ -1444,7 +1457,7 @@ const styles = StyleSheet.create({
   brandName: { color: COLORS.text, fontSize: 17, fontWeight: '900', letterSpacing: 2.6 },
   brandTagline: { color: COLORS.muted, fontSize: 8, letterSpacing: 1.4, marginTop: 3 },
   topBarNote: { color: COLORS.muted, fontSize: 10, letterSpacing: 1.8 },
-  topBarAction: { width: 38, height: 38, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+  topBarAction: { width: 38, height: 38, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   topBarActionText: { color: '#A7C6FF', fontSize: 21 },
   body: { flex: 1 },
   bodyWide: { flexDirection: 'row' },
