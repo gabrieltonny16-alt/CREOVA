@@ -216,7 +216,7 @@ function ReelsScreen({ onOpenPost }: { onOpenPost: (postId: string) => void }) {
         const video = reel.media.find(item => item.mediaType === 'video');
         if (!video) return null;
         return <View key={reel.id} style={{ height: reelHeight, backgroundColor: '#05070D', justifyContent: 'center' }}>
-          <ReelVideo uri={video.signedUrl} active={index === activeIndex} />
+          {index === activeIndex ? <ReelVideo uri={video.signedUrl} active /> : <View style={{ width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#101827' }}><Text style={{ color: '#FFFFFF', fontSize: 34 }}>▶</Text></View>}
           <View pointerEvents="none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 240, backgroundColor: 'rgba(0,0,0,0.38)' }} />
           <View style={{ position: 'absolute', left: 16, right: 76, bottom: 24 }}>
             <Text style={{ color: '#FFFFFF', fontWeight: '900', fontSize: 14, marginBottom: 7 }}>@{reel.author?.username ?? 'creator'}</Text>
