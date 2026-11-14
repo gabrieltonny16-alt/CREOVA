@@ -331,7 +331,8 @@ export async function getReelsFeed(limit = 60): Promise<CreovaFeedPost[]> {
   if (!auth.user) throw new Error('Sign in to watch Reels.');
   const { data, error } = await client
     .from('posts')
-    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media!inner(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .eq('media.media_type', 'video')
     .order('created_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 100));
   if (error) throw error;
