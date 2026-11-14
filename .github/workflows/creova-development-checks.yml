@@ -1,0 +1,34 @@
+name: CREOVA development checks
+
+on:
+  push:
+    branches:
+      - rebuild/fresh-social-platform
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: creova-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: TypeScript and Expo web export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check Expo dependency compatibility
+        run: npx expo install --check
+      - name: TypeScript typecheck
+        run: npm run typecheck
+      - name: Export web build
+        run: npm run export:web
