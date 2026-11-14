@@ -209,6 +209,95 @@ export async function recordStoryView(storyId: string): Promise<void> {
   if (error) throw error;
 }
 
+
+export type StoryReaction = {
+  user_id: string;
+  reaction: string;
+  created_at: string;
+};
+
+export type StoryReply = {
+  id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+  sender: { username: string; display_name: string; avatar_url: string | null } | null;
+};
+
+export type StoryEngagement = {
+  reactions: StoryReaction[];
+  replies: StoryReply[];
+};
+
+const STORY_REACTIONS = ['❤️', '😂', '😮', '😢', '🔥', '👏'] as const;
+
+export async function toggleStoryReaction(storyId: string, reaction: typeof STORY_REACTIONS[number]): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to react to a story.');
+
+  const { data: existing, error: lookupError } = await client.from('story_reactions')
+    .select('reaction')
+    .eq('story_id', storyId)
+    .eq('user_id', auth.user.id)
+    .maybeSingle();
+  if (lookupError) throw lookupError;
+
+  if (existing?.reaction === reaction) {
+    const { error } = await client.from('story_reactions').delete()
+      .eq('story_id', storyId)
+      .eq('user_id', auth.user.id);
+    if (error) throw error;
+    return;
+  }
+  if (existing) {
+    const { error } = await client.from('story_reactions').delete()
+      .eq('story_id', storyId)
+      .eq('user_id', auth.user.id);
+    if (error) throw error;
+  }
+  const { error: insertError } = await client.from('story_reactions').insert({
+    story_id: storyId,
+    user_id: auth.user.id,
+    reaction,
+  });
+  if (insertError) throw insertError;
+}
+
+export async function sendStoryReply(storyId: string, body: string): Promise<void> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to reply to a story.');
+  const cleanBody = body.trim();
+  if (!cleanBody) throw new Error('Write a reply first.');
+  if (cleanBody.length > 1000) throw new Error('Replies can be up to 1,000 characters.');
+  const { error } = await client.from('story_replies').insert({
+    story_id: storyId,
+    sender_id: auth.user.id,
+    body: cleanBody,
+  });
+  if (error) throw error;
+}
+
+export async function getStoryEngagement(storyId: string): Promise<StoryEngagement> {
+  const client = requireSupabase();
+  const [reactionResult, replyResult] = await Promise.all([
+    client.from('story_reactions').select('user_id, reaction, created_at')
+      .eq('story_id', storyId).order('created_at', { ascending: false }).limit(500),
+    client.from('story_replies')
+      .select('id, sender_id, body, created_at, sender:profiles!story_replies_sender_id_fkey(username, display_name, avatar_url)')
+      .eq('story_id', storyId).order('created_at', { ascending: false }).limit(500),
+  ]);
+  if (reactionResult.error) throw reactionResult.error;
+  if (replyResult.error) throw replyResult.error;
+  return {
+    reactions: (reactionResult.data ?? []) as StoryReaction[],
+    replies: (replyResult.data ?? []) as unknown as StoryReply[],
+  };
+}
+
 export async function getStoryViewers(storyId: string): Promise<CreovaStoryViewer[]> {
   const client = requireSupabase();
   const { data, error } = await client.from('story_views')
