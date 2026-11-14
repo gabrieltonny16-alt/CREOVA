@@ -6,6 +6,13 @@ const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_SECONDS = 30;
 const STORY_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
+function createUuid(): string {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
+    const random = Math.floor(Math.random() * 16);
+    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
 export type StoryMediaType = 'image' | 'video';
 
 export type StoryAuthor = {
@@ -40,7 +47,7 @@ export type CreovaStoryGroup = {
 type RawStory = {
   id: string;
   user_id: string;
-  object_path: string;
+  media_path: string;
   media_type: StoryMediaType;
   duration_seconds: number | null;
   caption: string;
@@ -87,35 +94,38 @@ export async function createStory(input: StoryMediaInput & { caption?: string; v
   if (caption.length > 500) throw new Error('Story captions can be up to 500 characters.');
 
   const extension = input.mimeType.split('/')[1]?.replace('quicktime', 'mov') ?? (mediaType === 'image' ? 'jpg' : 'mp4');
+  const storyId = createUuid();
   const objectId = `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
-  const objectPath = `${auth.user.id}/${objectId}.${extension}`;
-  const fileResponse = await fetch(input.uri);
-  if (!fileResponse.ok) throw new Error('Could not read the selected story media.');
-  const file = await fileResponse.blob();
-  if (file.size > maximumBytes) throw new Error(mediaType === 'image' ? 'Images must be 10 MB or smaller.' : 'Videos must be 25 MB or smaller.');
-
-  const { error: uploadError } = await client.storage.from(STORY_BUCKET).upload(objectPath, file, {
-    contentType: input.mimeType,
-    cacheControl: '3600',
-    upsert: false,
-  });
-  if (uploadError) throw uploadError;
-
+  const mediaPath = `${auth.user.id}/${storyId}/${objectId}.${extension}`;
   const createdAt = new Date();
+
+  // CREOVA's existing Storage INSERT policy requires the story row to exist first
+  // and validates the owner/story-id folder structure.
   const { error: insertError } = await client.from('stories').insert({
+    id: storyId,
     user_id: auth.user.id,
-    object_path: objectPath,
+    media_path: mediaPath,
     media_type: mediaType,
-    mime_type: input.mimeType,
-    file_size_bytes: file.size,
-    duration_seconds: mediaType === 'video' ? input.durationSeconds : null,
     caption,
     visibility: input.visibility ?? 'public',
     expires_at: new Date(createdAt.getTime() + STORY_LIFETIME_MS).toISOString(),
   });
-  if (insertError) {
-    await client.storage.from(STORY_BUCKET).remove([objectPath]);
-    throw insertError;
+  if (insertError) throw insertError;
+
+  try {
+    const fileResponse = await fetch(input.uri);
+    if (!fileResponse.ok) throw new Error('Could not read the selected story media.');
+    const file = await fileResponse.blob();
+    if (file.size > maximumBytes) throw new Error(mediaType === 'image' ? 'Images must be 10 MB or smaller.' : 'Videos must be 25 MB or smaller.');
+    const { error: uploadError } = await client.storage.from(STORY_BUCKET).upload(mediaPath, file, {
+      contentType: input.mimeType,
+      cacheControl: '3600',
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+  } catch (error) {
+    await client.from('stories').delete().eq('id', storyId).eq('user_id', auth.user.id);
+    throw error;
   }
 }
 
@@ -133,7 +143,7 @@ export async function getActiveStoryGroups(): Promise<CreovaStoryGroup[]> {
   const authorIds = [...new Set([auth.user.id, ...(follows ?? []).map(row => row.following_id)])];
 
   const { data, error } = await client.from('stories')
-    .select('id, user_id, object_path, media_type, duration_seconds, caption, created_at, expires_at, author:profiles!stories_user_id_fkey(id, username, display_name, avatar_url), views:story_views(viewer_id)')
+    .select('id, user_id, media_path, media_type, caption, created_at, expires_at, author:profiles!stories_user_id_fkey(id, username, display_name, avatar_url), views:story_views(viewer_id)')
     .in('user_id', authorIds)
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: true });
@@ -141,7 +151,7 @@ export async function getActiveStoryGroups(): Promise<CreovaStoryGroup[]> {
 
   const rawStories = (data ?? []) as unknown as RawStory[];
   if (!rawStories.length) return [];
-  const paths = rawStories.map(story => story.object_path);
+  const paths = rawStories.map(story => story.media_path);
   const { data: signedUrls, error: signedError } = await client.storage.from(STORY_BUCKET).createSignedUrls(paths, 3600);
   if (signedError) throw signedError;
   const signedByPath = new Map<string, string>();
@@ -151,14 +161,14 @@ export async function getActiveStoryGroups(): Promise<CreovaStoryGroup[]> {
 
   const grouped = new Map<string, CreovaStoryGroup>();
   rawStories.forEach(raw => {
-    const signedUrl = signedByPath.get(raw.object_path);
+    const signedUrl = signedByPath.get(raw.media_path);
     if (!signedUrl) return;
     const story: CreovaStory = {
       id: raw.id,
       user_id: raw.user_id,
       signedUrl,
       mediaType: raw.media_type,
-      durationSeconds: raw.duration_seconds,
+      durationSeconds: null,
       caption: raw.caption ?? '',
       created_at: raw.created_at,
       expires_at: raw.expires_at,
@@ -215,12 +225,12 @@ export async function deleteStory(storyId: string): Promise<void> {
   if (authError) throw authError;
   if (!auth.user) throw new Error('Sign in to delete a story.');
   const { data: story, error: lookupError } = await client.from('stories')
-    .select('object_path')
+    .select('media_path')
     .eq('id', storyId)
     .eq('user_id', auth.user.id)
     .single();
   if (lookupError) throw lookupError;
-  const { error: storageError } = await client.storage.from(STORY_BUCKET).remove([story.object_path]);
+  const { error: storageError } = await client.storage.from(STORY_BUCKET).remove([story.media_path]);
   if (storageError) throw storageError;
   const { error: deleteError } = await client.from('stories').delete()
     .eq('id', storyId)
