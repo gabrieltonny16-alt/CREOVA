@@ -1326,6 +1326,8 @@ function MainApp() {
       setActiveTab('Discover');
     } else {
       setShowActivity(true);
+      setSelectedPostId(null);
+      setSelectedProfileUsername(null);
       setActiveTab('Inbox');
     }
   }
@@ -1414,7 +1416,7 @@ function MainApp() {
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
           {isWide && <Text style={styles.topBarNote}>THE SOCIAL NETWORK BUILT FOR EVOLUTION</Text>}
-          <TouchableOpacity onPress={openActivity} style={styles.topBarAction accessibilityRole="button" accessibilityLabel="Notifications">
+          <TouchableOpacity onPress={openActivity} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Notifications">
             <Text style={styles.topBarActionText}>♢</Text>
             {unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
           </TouchableOpacity>
@@ -1436,7 +1438,6 @@ function MainApp() {
           {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => { setShowActivity(false); setSelectedPostId(null); setSelectedProfileUsername(null); setActiveTab(tab.key); }} style={styles.bottomNavItem} accessibilityRole="button" accessibilityLabel={tab.label} accessibilityState={{ selected: activeTab === tab.key }}>
             <View style={styles.navIconWrap}>
               <Text style={[styles.bottomNavSymbol, activeTab === tab.key && styles.activeText, tab.key === 'Create' && styles.createSymbol]}>{tab.symbol}</Text>
-              {tab.key === 'Inbox' && unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
             </View>
             <Text style={[styles.bottomNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
           </TouchableOpacity>)}
