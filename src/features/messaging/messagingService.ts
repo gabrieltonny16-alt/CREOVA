@@ -410,5 +410,15 @@ export function subscribeToConversationMessages(
       },
       onChange,
     )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversation_members',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      onChange,
+    )
     .subscribe();
 }
