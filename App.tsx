@@ -797,11 +797,11 @@ function CreateScreen() {
       });
       if (result?.uri) {
         setCameraVisible(false);
-        const asset: ImagePicker.ImagePickerAsset = {
-          assetId: null, base64: null, duration: recordingDuration * 1000, exif: null,
-          fileName: 'creova-reel.mp4', fileSize: null, height: 1920,
-          mimeType: 'video/mp4', type: 'video', uri: result.uri, width: 1080,
-        };
+        const asset = {
+          assetId: null, base64: null, duration: null, exif: null,
+          fileName: 'creova-reel.mp4', height: 1920,
+          mimeType: 'video/mp4', type: 'video' as const, uri: result.uri, width: 1080,
+        } as ImagePicker.ImagePickerAsset;
         editVideo(asset);
       }
     } catch (error) {
