@@ -26,6 +26,7 @@ import {
   sendMediaMessage,
   setConversationMessageReaction,
   startDirectConversation,
+  startGroupConversation,
   subscribeToConversationMessages,
 } from './messagingService';
 import type { ConversationMessage, ConversationPreview } from './messagingService';
@@ -94,6 +95,9 @@ export function MessagingInbox() {
   const [searchResults, setSearchResults] = useState<SearchProfile[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
   const [newRecipient, setNewRecipient] = useState<SearchProfile | null>(null);
+  const [groupMode, setGroupMode] = useState(false);
+  const [groupTitle, setGroupTitle] = useState('');
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState<SearchProfile[]>([]);
   const [filter, setFilter] = useState<'All' | 'Requests'>('All');
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(audioRecorder, 500);
@@ -179,11 +183,39 @@ export function MessagingInbox() {
   function openNewMessage() {
     setSelectedId(null);
     setNewRecipient(null);
+    setGroupMode(false);
+    setSelectedGroupMembers([]);
+    setGroupTitle('');
     setDraft('');
     setSearchText('');
     setSearchResults([]);
     setSearchOpen(true);
     setNotice('');
+  }
+
+  function openNewGroup() {
+    setSelectedId(null); setNewRecipient(null); setDraft(''); setSearchText('');
+    setSearchResults([]); setGroupMode(true); setGroupTitle('');
+    setSelectedGroupMembers([]); setSearchOpen(true); setNotice('');
+  }
+
+  function toggleGroupMember(person: SearchProfile) {
+    setSelectedGroupMembers(current => current.some(member => member.id === person.id)
+      ? current.filter(member => member.id !== person.id)
+      : current.length >= 49 ? current : [...current, person]);
+  }
+
+  async function createGroup() {
+    if (busy) return;
+    setBusy(true); setNotice('');
+    try {
+      const conversationId = await startGroupConversation(selectedGroupMembers.map(member => member.id), groupTitle, draft);
+      setSearchOpen(false); setGroupMode(false); setSelectedGroupMembers([]);
+      setGroupTitle(''); setDraft('');
+      await loadConversations(); setSelectedId(conversationId);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not create this group.');
+    } finally { setBusy(false); }
   }
 
   async function sendMessage() {
@@ -493,12 +525,12 @@ export function MessagingInbox() {
     return (
       <View style={styles.screen}>
         <View style={styles.sectionHeader}>
-          <TouchableOpacity onPress={() => { setSearchOpen(false); setNewRecipient(null); setNotice(''); }} style={styles.backButton}>
+          <TouchableOpacity onPress={() => { setSearchOpen(false); setNewRecipient(null); setGroupMode(false); setSelectedGroupMembers([]); setNotice(''); }} style={styles.backButton}>
             <Text style={styles.backText}>‹</Text>
           </TouchableOpacity>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>{newRecipient ? `Message ${newRecipient.display_name}` : 'New message'}</Text>
-            <Text style={styles.subtitle}>Find a CREOVA member to message</Text>
+            <Text style={styles.title}>{groupMode ? 'Create a group' : newRecipient ? `Message ${newRecipient.display_name}` : 'New message'}</Text>
+            <Text style={styles.subtitle}>{groupMode ? 'Select at least two members to start a group' : 'Find a CREOVA member to message'}</Text>
           </View>
         </View>
         {!newRecipient && (
@@ -518,19 +550,38 @@ export function MessagingInbox() {
                 <Text style={styles.searchButtonText}>{searchBusy ? '…' : 'Search'}</Text>
               </TouchableOpacity>
             </View>
+            {groupMode && selectedGroupMembers.length > 0 && (
+              <View style={styles.selectedMembers}>
+                {selectedGroupMembers.map(member => (
+                  <TouchableOpacity key={member.id} onPress={() => toggleGroupMember(member)} style={styles.selectedMemberChip}>
+                    <Text style={styles.selectedMemberText}>✓ {member.display_name || member.username} ×</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
             {searchResults.map(person => (
-              <TouchableOpacity key={person.id} onPress={() => setNewRecipient(person)} style={styles.personRow}>
+              <TouchableOpacity key={person.id} onPress={() => groupMode ? toggleGroupMember(person) : setNewRecipient(person)} style={styles.personRow}>
                 <Avatar uri={person.avatar_url} label={person.display_name || person.username} />
                 <View style={styles.headerCopy}>
                   <Text style={styles.personName}>{person.display_name}</Text>
                   <Text style={styles.subtitle}>@{person.username}{person.is_private ? ' · Private account' : ''}</Text>
                 </View>
-                <Text style={styles.selectText}>Select ›</Text>
+                <Text style={styles.selectText}>{groupMode ? selectedGroupMembers.some(member => member.id === person.id) ? 'Selected ✓' : 'Add +' : 'Select ›'}</Text>
               </TouchableOpacity>
             ))}
           </>
         )}
-        {newRecipient && (
+        {groupMode && (
+          <View style={styles.firstMessageCard}>
+            <Text style={styles.personName}>{selectedGroupMembers.length + 1} group members selected</Text>
+            <TextInput value={groupTitle} onChangeText={setGroupTitle} placeholder="Group name (optional)" placeholderTextColor="#71819C" style={styles.searchInput} maxLength={80} />
+            <TextInput value={draft} onChangeText={setDraft} placeholder="Write the group's first message…" placeholderTextColor="#71819C" style={[styles.composerInput, styles.firstMessageInput]} multiline maxLength={5000} />
+            <TouchableOpacity disabled={busy || selectedGroupMembers.length < 2 || !draft.trim()} onPress={createGroup} style={[styles.primaryButton, (busy || selectedGroupMembers.length < 2 || !draft.trim()) && styles.disabledButton]}>
+              <Text style={styles.primaryButtonText}>{busy ? 'Creating…' : 'Create group'}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {newRecipient && !groupMode && (
           <View style={styles.firstMessageCard}>
             <Avatar uri={newRecipient.avatar_url} label={newRecipient.display_name || newRecipient.username} size={54} />
             <Text style={styles.personName}>{newRecipient.display_name}</Text>
@@ -561,9 +612,10 @@ export function MessagingInbox() {
           <Text style={styles.eyebrow}>PRIVATE CONVERSATIONS</Text>
           <Text style={styles.title}>Messages</Text>
         </View>
-        <TouchableOpacity onPress={openNewMessage} style={styles.newMessageButton}>
-          <Text style={styles.newMessageText}>＋ New</Text>
-        </TouchableOpacity>
+        <View style={styles.newMessageActions}>
+          <TouchableOpacity onPress={openNewMessage} style={styles.newMessageButton}><Text style={styles.newMessageText}>＋ New</Text></TouchableOpacity>
+          <TouchableOpacity onPress={openNewGroup} style={styles.newMessageButton}><Text style={styles.newMessageText}>＋ Group</Text></TouchableOpacity>
+        </View>
       </View>
       <View style={styles.filterRow}>
         {(['All', 'Requests'] as const).map(value => (
@@ -623,6 +675,7 @@ const styles = StyleSheet.create({
   subtitle: { color: COLORS.muted, fontSize: 10 },
   avatar: { backgroundColor: COLORS.softBlue, borderWidth: 1, borderColor: '#355B9C', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarText: { color: '#A7C6FF', fontWeight: '900' },
+  newMessageActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   newMessageButton: { backgroundColor: COLORS.softBlue, borderWidth: 1, borderColor: '#355B9C', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 11 },
   newMessageText: { color: '#A7C6FF', fontSize: 11, fontWeight: '900' },
   filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -692,6 +745,9 @@ const styles = StyleSheet.create({
   composerInput: { flex: 1, minHeight: 44, maxHeight: 130, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 14, paddingHorizontal: 13, paddingVertical: 10, color: COLORS.text, fontSize: 12, textAlignVertical: 'top' },
   sendButton: { backgroundColor: COLORS.blue, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 13 },
   sendButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  selectedMembers: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  selectedMemberChip: { backgroundColor: COLORS.softBlue, borderWidth: 1, borderColor: '#355B9C', borderRadius: 14, paddingHorizontal: 9, paddingVertical: 6 },
+  selectedMemberText: { color: '#C6DAFF', fontSize: 9, fontWeight: '800' },
   searchRow: { flexDirection: 'row', gap: 8 },
   searchInput: { flex: 1, minHeight: 46, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface, borderRadius: 12, paddingHorizontal: 12, color: COLORS.text, fontSize: 12 },
   searchButton: { backgroundColor: COLORS.blue, paddingHorizontal: 14, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
