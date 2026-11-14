@@ -1,8 +1,8 @@
--- Secure group administration for CREOVA messaging.
--- All privileged changes run through authenticated SECURITY DEFINER RPCs.
-create or replace function public.creova_invite_group_members(
-  p_conversation_id uuid,
-  p_member_ids uuid[]
+-- Secure group management: privileged implementations stay in the non-exposed private schema.
+-- Public RPCs are SECURITY INVOKER wrappers and are executable only by authenticated users.
+
+create or replace function private.creova_invite_group_members_impl(
+  p_conversation_id uuid, p_member_ids uuid[]
 )
 returns void
 language plpgsql
@@ -25,18 +25,21 @@ begin
   if p_member_ids is null or cardinality(p_member_ids) < 1 or cardinality(p_member_ids) > 49 then
     raise exception 'Choose between 1 and 49 members to invite';
   end if;
-  select count(*) into v_existing_count
-  from public.conversation_members
+  select count(*) into v_existing_count from public.conversation_members
   where conversation_id = p_conversation_id and membership_status in ('accepted', 'pending');
-  select count(distinct x) into v_new_count
-  from unnest(p_member_ids) x
-  where x <> v_user_id and not exists (
+  select count(distinct candidate_id) into v_new_count
+  from unnest(p_member_ids) as candidates(candidate_id)
+  where candidate_id <> v_user_id and not exists (
     select 1 from public.conversation_members m
-    where m.conversation_id = p_conversation_id and m.user_id = x
+    where m.conversation_id = p_conversation_id and m.user_id = candidate_id
       and m.membership_status in ('accepted', 'pending')
   );
-  if v_existing_count + v_new_count > 50 then raise exception 'A group can have up to 50 active or invited members'; end if;
-  for v_member_id in select distinct member_id from unnest(p_member_ids) as members(member_id) loop
+  if v_existing_count + v_new_count > 50 then
+    raise exception 'A group can have up to 50 active or invited members';
+  end if;
+  for v_member_id in
+    select distinct candidate_id from unnest(p_member_ids) as candidates(candidate_id)
+  loop
     if v_member_id <> v_user_id then
       insert into public.conversation_members (
         conversation_id, user_id, role, membership_status, invited_by
@@ -50,10 +53,8 @@ begin
 end;
 $$;
 
-create or replace function public.creova_set_group_member_role(
-  p_conversation_id uuid,
-  p_member_id uuid,
-  p_role text
+create or replace function private.creova_set_group_member_role_impl(
+  p_conversation_id uuid, p_member_id uuid, p_role text
 )
 returns void
 language plpgsql
@@ -90,9 +91,8 @@ begin
 end;
 $$;
 
-create or replace function public.creova_rename_group(
-  p_conversation_id uuid,
-  p_title text
+create or replace function private.creova_rename_group_impl(
+  p_conversation_id uuid, p_title text
 )
 returns void
 language plpgsql
@@ -116,7 +116,7 @@ begin
 end;
 $$;
 
-create or replace function public.creova_leave_group(p_conversation_id uuid)
+create or replace function private.creova_leave_group_impl(p_conversation_id uuid)
 returns void
 language plpgsql
 security definer
@@ -149,6 +149,32 @@ begin
   where conversation_id = p_conversation_id and user_id = v_user_id;
 end;
 $$;
+
+revoke all on function private.creova_invite_group_members_impl(uuid, uuid[]) from public, anon;
+revoke all on function private.creova_set_group_member_role_impl(uuid, uuid, text) from public, anon;
+revoke all on function private.creova_rename_group_impl(uuid, text) from public, anon;
+revoke all on function private.creova_leave_group_impl(uuid) from public, anon;
+grant usage on schema private to authenticated;
+grant execute on function private.creova_invite_group_members_impl(uuid, uuid[]) to authenticated;
+grant execute on function private.creova_set_group_member_role_impl(uuid, uuid, text) to authenticated;
+grant execute on function private.creova_rename_group_impl(uuid, text) to authenticated;
+grant execute on function private.creova_leave_group_impl(uuid) to authenticated;
+
+create or replace function public.creova_invite_group_members(p_conversation_id uuid, p_member_ids uuid[])
+returns void language plpgsql security invoker set search_path = ''
+as $$ begin perform private.creova_invite_group_members_impl(p_conversation_id, p_member_ids); end; $$;
+
+create or replace function public.creova_set_group_member_role(p_conversation_id uuid, p_member_id uuid, p_role text)
+returns void language plpgsql security invoker set search_path = ''
+as $$ begin perform private.creova_set_group_member_role_impl(p_conversation_id, p_member_id, p_role); end; $$;
+
+create or replace function public.creova_rename_group(p_conversation_id uuid, p_title text)
+returns void language plpgsql security invoker set search_path = ''
+as $$ begin perform private.creova_rename_group_impl(p_conversation_id, p_title); end; $$;
+
+create or replace function public.creova_leave_group(p_conversation_id uuid)
+returns void language plpgsql security invoker set search_path = ''
+as $$ begin perform private.creova_leave_group_impl(p_conversation_id); end; $$;
 
 revoke all on function public.creova_invite_group_members(uuid, uuid[]) from public, anon;
 revoke all on function public.creova_set_group_member_role(uuid, uuid, text) from public, anon;
