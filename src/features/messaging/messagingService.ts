@@ -326,6 +326,52 @@ export async function startGroupConversation(memberIds: string[], title: string,
   return data;
 }
 
+export async function inviteGroupMember(conversationId: string, memberId: string): Promise<void> {
+  const client = requireSupabase();
+  await getViewerId();
+  const { error } = await client.rpc('creova_invite_group_members', {
+    p_conversation_id: conversationId,
+    p_member_ids: [memberId],
+  });
+  if (error) throw error;
+}
+
+export async function setGroupMemberRole(
+  conversationId: string,
+  memberId: string,
+  role: 'admin' | 'member',
+): Promise<void> {
+  const client = requireSupabase();
+  await getViewerId();
+  const { error } = await client.rpc('creova_set_group_member_role', {
+    p_conversation_id: conversationId,
+    p_member_id: memberId,
+    p_role: role,
+  });
+  if (error) throw error;
+}
+
+export async function renameGroup(conversationId: string, title: string): Promise<void> {
+  const client = requireSupabase();
+  await getViewerId();
+  const cleanTitle = title.trim();
+  if (!cleanTitle || cleanTitle.length > 80) throw new Error('Group names must contain 1 to 80 characters.');
+  const { error } = await client.rpc('creova_rename_group', {
+    p_conversation_id: conversationId,
+    p_title: cleanTitle,
+  });
+  if (error) throw error;
+}
+
+export async function leaveGroup(conversationId: string): Promise<void> {
+  const client = requireSupabase();
+  await getViewerId();
+  const { error } = await client.rpc('creova_leave_group', {
+    p_conversation_id: conversationId,
+  });
+  if (error) throw error;
+}
+
 export async function acceptConversationRequest(conversationId: string): Promise<void> {
   const client = requireSupabase();
   const viewerId = await getViewerId();
