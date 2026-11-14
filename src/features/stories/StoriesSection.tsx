@@ -256,6 +256,8 @@ export function StoriesSection() {
   const [message, setMessage] = useState('');
   const [visibility, setVisibility] = useState<'followers' | 'public'>('followers');
   const [viewerGroupIndex, setViewerGroupIndex] = useState<number | null>(null);
+  const [composerAsset, setComposerAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [caption, setCaption] = useState('');
 
   async function loadStories() {
     try {
@@ -270,8 +272,7 @@ export function StoriesSection() {
   useEffect(() => { void loadStories(); }, []);
 
   async function addStory() {
-    if (busy) return;
-    setBusy(true);
+    if (busy || composerAsset) return;
     setMessage('');
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -282,7 +283,19 @@ export function StoriesSection() {
         quality: 0.85,
       });
       if (result.canceled || !result.assets[0]) return;
-      const asset = result.assets[0];
+      setCaption('');
+      setComposerAsset(result.assets[0]);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not select story media.');
+    }
+  }
+
+  async function publishStory() {
+    if (!composerAsset || busy) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const asset = composerAsset;
       const mediaType = asset.type === 'video' || asset.mimeType?.startsWith('video/') ? 'video' : 'image';
       const mimeType = asset.mimeType ?? (mediaType === 'image' ? 'image/jpeg' : '');
       const allowed = mediaType === 'image'
@@ -293,8 +306,18 @@ export function StoriesSection() {
       if (asset.fileSize && asset.fileSize > maximum) throw new Error(mediaType === 'image' ? 'Images must be 10 MB or smaller.' : 'Videos must be 25 MB or smaller.');
       const durationSeconds = mediaType === 'video' ? (asset.duration ?? 0) / 1000 : null;
       if (mediaType === 'video' && (!durationSeconds || durationSeconds > 30)) throw new Error('Story videos must be 30 seconds or shorter.');
-      await createStory({ uri: asset.uri, mimeType, fileSize: asset.fileSize ?? null, durationSeconds, visibility });
+      await createStory({
+        uri: asset.uri,
+        mimeType,
+        fileSize: asset.fileSize ?? null,
+        durationSeconds,
+        visibility,
+        caption: caption.trim(),
+      });
+      setComposerAsset(null);
+      setCaption('');
       await loadStories();
+      setMessage('Story shared.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not create your story.');
     } finally {
@@ -332,6 +355,43 @@ export function StoriesSection() {
       </ScrollView>
       {!!message && <Text style={{ color: '#F4A6B2', fontSize: 11, marginTop: 7 }}>{message}</Text>}
       {loading && <Text style={{ color: MUTED, fontSize: 10, marginTop: 2 }}>Loading stories…</Text>}
+
+      <Modal visible={composerAsset !== null} animationType="slide" onRequestClose={() => { if (!busy) setComposerAsset(null); }}>
+        <View style={{ flex: 1, backgroundColor: STORY_BACKGROUND, paddingTop: 48, paddingHorizontal: 18, paddingBottom: 24 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+            <TouchableOpacity disabled={busy} onPress={() => { setComposerAsset(null); setCaption(''); }}>
+              <Text style={{ color: MUTED, fontWeight: '800', fontSize: 14 }}>Cancel</Text>
+            </TouchableOpacity>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '900' }}>Create story</Text>
+            <TouchableOpacity disabled={busy} onPress={() => void publishStory()} style={{ backgroundColor: BLUE, borderRadius: 18, paddingHorizontal: 16, paddingVertical: 9, opacity: busy ? 0.55 : 1 }}>
+              <Text style={{ color: '#FFFFFF', fontWeight: '900' }}>{busy ? 'Sharing…' : 'Share'}</Text>
+            </TouchableOpacity>
+          </View>
+          {composerAsset?.type === 'image' || composerAsset?.mimeType?.startsWith('image/') ? (
+            <Image source={{ uri: composerAsset.uri }} resizeMode="contain" style={{ width: '100%', height: '58%', borderRadius: 16, backgroundColor: '#111A2B' }} />
+          ) : (
+            <View style={{ height: '58%', borderRadius: 16, backgroundColor: '#111A2B', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 42 }}>▶</Text>
+              <Text style={{ color: MUTED, marginTop: 8 }}>Video selected · up to 30 seconds</Text>
+              <Text numberOfLines={1} style={{ color: MUTED, fontSize: 11, marginTop: 5, maxWidth: '90%' }}>{composerAsset?.fileName || 'Selected video'}</Text>
+            </View>
+          )}
+          <Text style={{ color: '#FFFFFF', fontWeight: '900', marginTop: 20, marginBottom: 8 }}>Add a caption</Text>
+          <TextInput
+            value={caption}
+            onChangeText={setCaption}
+            placeholder="Write something about this story…"
+            placeholderTextColor={MUTED}
+            maxLength={500}
+            multiline
+            textAlignVertical="top"
+            style={{ minHeight: 92, maxHeight: 140, color: '#FFFFFF', backgroundColor: '#111A2B', borderColor: '#263650', borderWidth: 1, borderRadius: 14, padding: 13, fontSize: 14 }}
+          />
+          <Text style={{ color: MUTED, fontSize: 10, textAlign: 'right', marginTop: 6 }}>{caption.length}/500</Text>
+          <Text style={{ color: MUTED, fontSize: 11, marginTop: 12 }}>Audience: {visibility === 'followers' ? 'Followers' : 'Public'} · Stories disappear after 24 hours.</Text>
+        </View>
+      </Modal>
+
       {viewerGroupIndex !== null && <StoryViewerModal
         groups={groups}
         initialGroupIndex={viewerGroupIndex}
