@@ -9,6 +9,7 @@ import type { CreovaFeedPost, CreovaPostComment, CreovaCommentReaction } from '.
 import { supabase } from './src/lib/supabase';
 import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, markAllNotificationsRead, subscribeToMyNotifications, getMyNotificationPreferences, saveMyNotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES } from './src/features/notifications/notificationService';
 import type { CreovaNotification, CreovaNotificationPreferences } from './src/features/notifications/notificationService';
+import { MessagingInbox } from './src/features/messaging/MessagingInbox';
 import { getThisDevicePushStatus, registerThisDeviceForPushNotifications, disableThisDevicePushNotifications, addPushNotificationResponseListener, getInitialPushNotificationResponse } from './src/features/notifications/pushNotificationService';
 import {
   SafeAreaView,
@@ -42,7 +43,7 @@ const TABS: { key: Tab; symbol: string; label: string }[] = [
   { key: 'Home', symbol: '⌂', label: 'Home' },
   { key: 'Discover', symbol: '⌕', label: 'Explore' },
   { key: 'Create', symbol: '+', label: 'Create' },
-  { key: 'Inbox', symbol: '✉', label: 'Inbox' },
+  { key: 'Inbox', symbol: '✉', label: 'Messages' },
   { key: 'Profile', symbol: '◉', label: 'Profile' },
 ];
 
@@ -764,10 +765,11 @@ function CreateScreen() {
     <View style={styles.createOption}><Text style={styles.optionSymbol}>▶</Text><View style={styles.optionText}><Text style={styles.optionTitle}>Short video</Text><Text style={styles.optionDescription}>Video publishing and processing will follow the photo pipeline.</Text></View><Text style={styles.optionArrow}>›</Text></View>
   </View>;
 }
-function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
+function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange, onBack }: {
   onOpenProfile: (username: string) => void;
   onOpenPost: (postId: string) => void;
   onUnreadCountChange: (count: number) => void;
+  onBack: () => void;
 }) {
   const [notifications, setNotifications] = useState<CreovaNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -896,6 +898,9 @@ function InboxScreen({ onOpenProfile, onOpenPost, onUnreadCountChange }: {
     : notifications.filter(item => filterTypes[activeFilter]?.includes(item.notification_type));
 
   return <View style={styles.screenContent}>
+    <TouchableOpacity onPress={onBack} style={styles.signOutButton}>
+      <Text style={styles.signOutText}>‹ Back to messages</Text>
+    </TouchableOpacity>
     <View style={styles.notificationHeaderRow}>
       <View>
         <Text style={styles.eyebrow}>YOUR ACTIVITY</Text>
@@ -1288,6 +1293,7 @@ function MainApp() {
   const [selectedProfileUsername, setSelectedProfileUsername] = useState<string | null>(null);
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
+  const [showActivity, setShowActivity] = useState(false);
   const { width } = useWindowDimensions();
   const isWide = width >= 760;
 
@@ -1296,6 +1302,7 @@ function MainApp() {
     if (notificationId) void markNotificationRead(notificationId).catch(() => undefined);
 
     if (data.notificationType === 'follow_request') {
+      setShowActivity(true);
       setSelectedPostId(null);
       setSelectedProfileUsername(null);
       setActiveTab('Inbox');
@@ -1304,6 +1311,7 @@ function MainApp() {
 
     const postId = typeof data.postId === 'string' ? data.postId : null;
     if (postId) {
+      setShowActivity(false);
       setSelectedProfileUsername(null);
       setSelectedPostId(postId);
       setActiveTab('Home');
@@ -1312,10 +1320,12 @@ function MainApp() {
 
     const actorUsername = typeof data.actorUsername === 'string' ? data.actorUsername : null;
     if (actorUsername) {
+      setShowActivity(false);
       setSelectedPostId(null);
       setSelectedProfileUsername(actorUsername);
       setActiveTab('Discover');
     } else {
+      setShowActivity(true);
       setActiveTab('Inbox');
     }
   }
@@ -1355,11 +1365,15 @@ function MainApp() {
   }, []);
 
   const openProfile = (username: string) => {
+    setShowActivity(false);
     setSelectedProfileUsername(username);
     setActiveTab('Discover');
   };
 
   const renderScreen = () => {
+    if (showActivity) {
+      return <InboxScreen onOpenProfile={openProfile} onOpenPost={setSelectedPostId} onUnreadCountChange={setUnreadNotificationCount} onBack={() => setShowActivity(false)} />;
+    }
     if (selectedPostId) {
       return <PostDetailScreen postId={selectedPostId} onBack={() => setSelectedPostId(null)} />;
     }
@@ -1374,7 +1388,7 @@ function MainApp() {
     switch (activeTab) {
       case 'Discover': return <DiscoverScreen onOpenProfile={openProfile} />;
       case 'Create': return <CreateScreen />;
-      case 'Inbox': return <InboxScreen onOpenProfile={openProfile} onOpenPost={setSelectedPostId} onUnreadCountChange={setUnreadNotificationCount} />;
+      case 'Inbox': return <MessagingInbox />;
       case 'Profile': return <ProfileScreen onOpenPost={setSelectedPostId} />;
       default: return <HomeScreen />;
     }
@@ -1387,15 +1401,17 @@ function MainApp() {
         <View style={[styles.topBar, isWide && styles.topBarWide]}>
           <Brand />
           {isWide && <Text style={styles.topBarNote}>THE SOCIAL NETWORK BUILT FOR EVOLUTION</Text>}
-          <View style={styles.topBarAction}><Text style={styles.topBarActionText}>✧</Text></View>
+          <TouchableOpacity onPress={() => setShowActivity(true)} style={styles.topBarAction} accessibilityRole="button" accessibilityLabel="Notifications">
+            <Text style={styles.topBarActionText}>♢</Text>
+            {unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
+          </TouchableOpacity>
         </View>
         <View style={[styles.body, isWide && styles.bodyWide]}>
           {isWide && <View style={styles.sideNav}>
             {TABS.map(tab => <TouchableOpacity key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.sideNavItem, activeTab === tab.key && styles.sideNavItemActive]}>
               <View style={styles.navIconWrap}>
                 <Text style={[styles.sideNavSymbol, activeTab === tab.key && styles.activeText]}>{tab.symbol}</Text>
-                {tab.key === 'Inbox' && unreadNotificationCount > 0 && <Text style={styles.navUnreadBadge}>{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</Text>}
-              </View>
+                </View>
               <Text style={[styles.sideNavLabel, activeTab === tab.key && styles.activeText]}>{tab.label}</Text>
             </TouchableOpacity>)}
           </View>}
