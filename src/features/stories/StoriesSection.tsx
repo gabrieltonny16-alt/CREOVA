@@ -165,6 +165,7 @@ export function StoriesSection() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [visibility, setVisibility] = useState<'followers' | 'public'>('followers');
   const [viewerGroupIndex, setViewerGroupIndex] = useState<number | null>(null);
 
   async function loadStories() {
@@ -203,7 +204,7 @@ export function StoriesSection() {
       if (asset.fileSize && asset.fileSize > maximum) throw new Error(mediaType === 'image' ? 'Images must be 10 MB or smaller.' : 'Videos must be 25 MB or smaller.');
       const durationSeconds = mediaType === 'video' ? (asset.duration ?? 0) / 1000 : null;
       if (mediaType === 'video' && (!durationSeconds || durationSeconds > 30)) throw new Error('Story videos must be 30 seconds or shorter.');
-      await createStory({ uri: asset.uri, mimeType, fileSize: asset.fileSize ?? null, durationSeconds });
+      await createStory({ uri: asset.uri, mimeType, fileSize: asset.fileSize ?? null, durationSeconds, visibility });
       await loadStories();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not create your story.');
@@ -214,6 +215,12 @@ export function StoriesSection() {
 
   return (
     <View style={{ marginBottom: 18 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 9 }}>
+        <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '900' }}>Stories</Text>
+        <TouchableOpacity onPress={() => setVisibility(current => current === 'followers' ? 'public' : 'followers')} style={{ borderWidth: 1, borderColor: '#263650', backgroundColor: '#111A2B', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 6 }}>
+          <Text style={{ color: BLUE, fontSize: 10, fontWeight: '800' }}>Audience: {visibility === 'followers' ? 'Followers' : 'Public'} · Change</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 15, paddingVertical: 4 }}>
         <TouchableOpacity disabled={busy} onPress={addStory} style={{ alignItems: 'center', width: 66 }}>
           <View style={{ width: 58, height: 58, borderRadius: 29, borderWidth: 2, borderColor: BLUE, backgroundColor: '#14223A', alignItems: 'center', justifyContent: 'center' }}>
