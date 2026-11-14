@@ -323,6 +323,21 @@ export async function getHomeFeed(): Promise<CreovaFeedPost[]> {
   return hydratePostRows(rawPosts, auth.user.id);
 }
 
+/** Reels reuse the existing secure post/media pipeline and its RLS rules. */
+export async function getReelsFeed(limit = 60): Promise<CreovaFeedPost[]> {
+  const client = requireSupabase();
+  const { data: auth, error: authError } = await client.auth.getUser();
+  if (authError) throw authError;
+  if (!auth.user) throw new Error('Sign in to watch Reels.');
+  const { data, error } = await client
+    .from('posts')
+    .select('id, author_id, caption, post_type, visibility, created_at, author:profiles!posts_author_id_fkey(username, display_name, avatar_url), media:post_media(id, object_path, media_type, width, height, duration_seconds, position), likes:post_likes(user_id), comments:post_comments(id)')
+    .order('created_at', { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 100));
+  if (error) throw error;
+  const posts = await hydratePostRows((data ?? []) as unknown as RawFeedPost[], auth.user.id);
+  return posts.filter(post => post.media.some(media => media.mediaType === 'video'));
+}
 export async function togglePostLike(postId: string): Promise<boolean> {
   const client = requireSupabase();
   const { data: auth, error: authError } = await client.auth.getUser();
