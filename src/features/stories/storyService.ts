@@ -106,6 +106,7 @@ export async function createStory(input: StoryMediaInput & { caption?: string; v
     user_id: auth.user.id,
     media_path: mediaPath,
     media_type: mediaType,
+    duration_seconds: mediaType === 'video' ? input.durationSeconds : null,
     caption,
     visibility: input.visibility ?? 'public',
     expires_at: new Date(createdAt.getTime() + STORY_LIFETIME_MS).toISOString(),
@@ -143,7 +144,7 @@ export async function getActiveStoryGroups(): Promise<CreovaStoryGroup[]> {
   const authorIds = [...new Set([auth.user.id, ...(follows ?? []).map(row => row.following_id)])];
 
   const { data, error } = await client.from('stories')
-    .select('id, user_id, media_path, media_type, caption, created_at, expires_at, author:profiles!stories_user_id_fkey(id, username, display_name, avatar_url), views:story_views(viewer_id)')
+    .select('id, user_id, media_path, media_type, duration_seconds, caption, created_at, expires_at, author:profiles!stories_user_id_fkey(id, username, display_name, avatar_url), views:story_views(viewer_id)')
     .in('user_id', authorIds)
     .gt('expires_at', new Date().toISOString())
     .order('created_at', { ascending: true });
@@ -168,7 +169,7 @@ export async function getActiveStoryGroups(): Promise<CreovaStoryGroup[]> {
       user_id: raw.user_id,
       signedUrl,
       mediaType: raw.media_type,
-      durationSeconds: null,
+      durationSeconds: raw.duration_seconds,
       caption: raw.caption ?? '',
       created_at: raw.created_at,
       expires_at: raw.expires_at,
