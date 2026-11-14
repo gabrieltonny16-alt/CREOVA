@@ -11,6 +11,7 @@ import { getMyNotifications, getUnreadNotificationCount, markNotificationRead, m
 import type { CreovaNotification, CreovaNotificationPreferences } from './src/features/notifications/notificationService';
 import { MessagingInbox } from './src/features/messaging/MessagingInbox';
 import { StoriesSection } from './src/features/stories/StoriesSection';
+import { StoryHighlightsSection } from './src/features/stories/StoryHighlightsSection';
 import { getThisDevicePushStatus, registerThisDeviceForPushNotifications, disableThisDevicePushNotifications, addPushNotificationResponseListener, getInitialPushNotificationResponse } from './src/features/notifications/pushNotificationService';
 import {
   SafeAreaView,
@@ -613,10 +614,13 @@ function PublicProfileScreen({ username, onBack, onOpenProfile, onOpenPost }: {
       {!!message && <Text style={styles.notice}>{message}</Text>}
       {profile.is_private && profile.follow_state !== 'accepted'
         ? <Text style={styles.privacyHint}>Follow this private account to see its posts and full activity.</Text>
-        : <View style={styles.profilePostsSection}>
+        : <>
+            <StoryHighlightsSection profileId={profile.id} isOwnProfile={false} />
+            <View style={styles.profilePostsSection}>
             <Text style={styles.subheading}>Posts</Text>
             <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
-          </View>}
+          </View>
+          </>}
     </View>}
     {!loading && !profile && <EmptyState title="Profile unavailable" description={message || 'This CREOVA profile could not be found.'} />}
   </View>;
@@ -1280,6 +1284,7 @@ function ProfileScreen({ onOpenPost }: { onOpenPost: (postId: string) => void })
                   </Text>
                 </TouchableOpacity>}
       </View>
+      <StoryHighlightsSection profileId={profile.id} isOwnProfile />
       <View style={styles.profilePostsSection}>
         <Text style={styles.subheading}>Your posts</Text>
         <PostGrid posts={profilePosts} loading={postsLoading} onOpenPost={onOpenPost} />
