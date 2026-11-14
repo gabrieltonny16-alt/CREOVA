@@ -178,7 +178,7 @@ export function MessagingInbox() {
   }
 
   async function handleReaction(message: ConversationMessage, emoji: '❤️' | '😂' | '😮' | '😢' | '👍' | '🔥') {
-    if (!selectedId || busy || message.deleted_at) return;
+    if (!selectedId || selectedConversation?.myMembership !== 'accepted' || busy || message.deleted_at) return;
     setBusy(true);
     setNotice('');
     try {
@@ -300,7 +300,7 @@ export function MessagingInbox() {
                       })}
                     </View>
                   )}
-                  {!message.deleted_at && (
+                  {selectedConversation.myMembership === 'accepted' && !message.deleted_at && (
                     <View style={styles.messageTools}>
                       {(['❤️', '😂', '😮', '😢', '👍', '🔥'] as const).map(emoji => (
                         <TouchableOpacity key={emoji} disabled={busy} onPress={() => { void handleReaction(message, emoji); }} style={styles.reactionButton}>
@@ -500,8 +500,8 @@ const styles = StyleSheet.create({
   requestCopy: { color: COLORS.muted, fontSize: 10, lineHeight: 16 },
   messageList: { maxHeight: 470, minHeight: 240 },
   messageListContent: { gap: 9, paddingVertical: 10 },
-  messageRow: { flexDirection: 'row', justifyContent: 'flex-start' },
-  messageRowOwn: { justifyContent: 'flex-end' },
+  messageRow: { flexDirection: 'column', alignItems: 'flex-start' },
+  messageRowOwn: { alignItems: 'flex-end' },
   messageBubble: { maxWidth: '84%', borderRadius: 16, paddingHorizontal: 13, paddingVertical: 9, gap: 5 },
   messageBubbleOwn: { backgroundColor: COLORS.blue, borderBottomRightRadius: 5 },
   messageBubbleOther: { backgroundColor: COLORS.raised, borderBottomLeftRadius: 5 },
