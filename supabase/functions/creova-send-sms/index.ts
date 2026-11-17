@@ -67,7 +67,7 @@ Deno.serve(async (request: Request) => {
 
     const responseText = await response.text();
     if (!response.ok) {
-      console.error("Africa's Talking request failed", response.status, responseText.slice(0, 500));
+      console.error("Africa's Talking request failed", response.status);
       return json(502, { error: "sms_provider_rejected_request" });
     }
 
@@ -84,7 +84,7 @@ Deno.serve(async (request: Request) => {
     }
 
     const recipient = result.SMSMessageData?.Recipients?.[0];
-    if (!recipient || recipient.statusCode !== 101 || recipient.status !== "Success") {
+    if (!recipient || ![100, 101, 102].includes(recipient.statusCode ?? -1)) {
       console.error("Africa's Talking did not accept the OTP", recipient?.statusCode, recipient?.status);
       return json(502, { error: "sms_delivery_not_accepted" });
     }
