@@ -40,7 +40,7 @@ jobs:
         run: npm run typecheck
 
       - name: Export web build
-        run: npx expo export --platform web --base-url /CREOVA/
+        run: npx expo export --platform web
 
       - name: Upload web preview artifact
         uses: actions/upload-artifact@v4
@@ -68,6 +68,9 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
