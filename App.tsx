@@ -20,7 +20,7 @@ export default function App() {
   if (showRegistration) {
     return (
       <SafeAreaView style={styles.safe}>
-        <StatusBar barStyle="light-content" backgroundColor="#070A12" />
+        <StatusBar barStyle="light-content" />
         <RegistrationScreen onBack={() => setShowRegistration(false)} />
       </SafeAreaView>
     );
@@ -28,7 +28,7 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#070A12" />
+      <StatusBar barStyle="light-content" />
       <View style={styles.app}>
         <View style={styles.header}>
           <View>
