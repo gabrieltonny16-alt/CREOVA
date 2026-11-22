@@ -2,27 +2,20 @@
 
 **Create. Connect. Evolve.**
 
-CREOVA is a full-scale social platform combining familiar social networking and photo-sharing experiences, short-form video and creator tools, and CREOVA's original execution ecosystem.
+CREOVA is being rebuilt as a modern, full-scale social platform. The first product milestone is feature parity with Instagram and TikTok across their major user, creator, communication, business, commerce, safety and platform capabilities. We will then improve their weaknesses and introduce CREOVA-native innovations.
 
-## Product pillars
+## Current status
 
-1. **Social:** profiles, follows, feeds, posts, stories, comments, likes, sharing, and messaging.
-2. **Entertainment:** vertical video, creator tools, sounds, effects, discovery, and LIVE capabilities.
-3. **Evolution:** Anchors, Iterations, execution trees, proof of execution, collaboration, and skill discovery.
+This is the clean-foundation rebuild. The first commit establishes the project shell and product/build rules. It is not a production social network yet.
 
-## Clean rebuild
+## Development
 
-This branch is the clean application rebuild, starting from the documentation-only `main` branch. Previous application implementations remain on their original branches for reference and rollback; they are not part of this new application baseline.
+- Cross-platform application foundation: Expo + React Native + TypeScript.
+- Start locally: `npm install` then `npm run start`.
+- Type check: `npm run typecheck`.
 
-See:
-- [Product specification](docs/PRODUCT_SPECIFICATION.md)
-- [Rebuild plan](docs/REBUILD_PLAN.md)
+No live messaging, payments, paid services, production credentials or external integrations are activated by this foundation.
 
-## Engineering principles
+## Product and engineering rules
 
-- Real, tested functionality; no fake success states or demo-only controls.
-- Android and Web share one product identity and backend contracts.
-- Security and authorization are enforced server-side.
-- Preserve previous branches and production data until explicit migration/retirement approval.
-- No paid provider, live payment, advertising spend, or external messaging without explicit approval.
-- Build in verified increments and document what has and has not been tested.
+Read [the product direction](docs/PRODUCT_DIRECTION.md) and [the build protocol](docs/BUILD_PROTOCOL.md) before adding features.
