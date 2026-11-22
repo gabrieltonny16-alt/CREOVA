@@ -8,13 +8,23 @@ import {
   View,
   ScrollView,
 } from "react-native";
+import RegistrationScreen from "./src/features/auth/RegistrationScreen";
 
 type Tab = "Home" | "Explore" | "Create" | "Inbox" | "Profile";
-
 const TABS: Tab[] = ["Home", "Explore", "Create", "Inbox", "Profile"];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("Home");
+  const [showRegistration, setShowRegistration] = useState(false);
+
+  if (showRegistration) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle="light-content" backgroundColor="#070A12" />
+        <RegistrationScreen onBack={() => setShowRegistration(false)} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -25,8 +35,13 @@ export default function App() {
             <Text style={styles.wordmark}>CREOVA</Text>
             <Text style={styles.tagline}>CREATE. CONNECT. EVOLVE.</Text>
           </View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Notifications" style={styles.headerAction}>
-            <Text style={styles.headerActionText}>◎</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create a CREOVA account"
+            onPress={() => setShowRegistration(true)}
+            style={styles.joinButton}
+          >
+            <Text style={styles.joinButtonText}>JOIN</Text>
           </Pressable>
         </View>
 
@@ -36,7 +51,7 @@ export default function App() {
           <View style={styles.hero}>
             <View style={styles.orbit} />
             <Text style={styles.heroKicker}>A NEW WAY TO BE SOCIAL</Text>
-            <Text style={styles.heroTitle}>Your world.{ "\n" }Your people.{ "\n" }Your next move.</Text>
+            <Text style={styles.heroTitle}>Your world.{"\n"}Your people.{"\n"}Your next move.</Text>
             <Text style={styles.heroBody}>
               A platform built for sharing, discovering and creating — with the tools to do more.
             </Text>
@@ -96,29 +111,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#070A12" },
   app: { flex: 1, backgroundColor: "#070A12" },
   header: {
-    minHeight: 68,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1A2235",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    minHeight: 68, paddingHorizontal: 20, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: "#1A2235",
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
   wordmark: { color: "#F4F7FF", fontSize: 22, fontWeight: "900", letterSpacing: 3 },
   tagline: { color: "#8295BA", fontSize: 9, fontWeight: "700", letterSpacing: 2, marginTop: 3 },
-  headerAction: {
-    width: 40, height: 40, borderRadius: 20, borderWidth: 1, borderColor: "#293653",
-    alignItems: "center", justifyContent: "center",
+  joinButton: {
+    borderRadius: 18, paddingHorizontal: 18, paddingVertical: 10,
+    backgroundColor: "#244F91", borderWidth: 1, borderColor: "#477CC9",
   },
-  headerActionText: { color: "#8CB8FF", fontSize: 23 },
+  joinButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
   content: { padding: 20, paddingBottom: 28 },
   eyebrow: { color: "#6E9FFF", fontSize: 10, fontWeight: "800", letterSpacing: 2.5, marginTop: 8 },
   heading: { color: "#F4F7FF", fontSize: 30, fontWeight: "800", marginTop: 5, marginBottom: 20 },
   hero: {
     minHeight: 260, borderRadius: 24, padding: 24, overflow: "hidden",
-    backgroundColor: "#101B34", borderWidth: 1, borderColor: "#253D69",
-    justifyContent: "center",
+    backgroundColor: "#101B34", borderWidth: 1, borderColor: "#253D69", justifyContent: "center",
   },
   orbit: {
     position: "absolute", width: 230, height: 230, borderRadius: 115,
@@ -127,7 +136,10 @@ const styles = StyleSheet.create({
   heroKicker: { color: "#8CB8FF", fontSize: 10, fontWeight: "800", letterSpacing: 2 },
   heroTitle: { color: "#FFFFFF", fontSize: 32, lineHeight: 38, fontWeight: "800", marginTop: 14 },
   heroBody: { color: "#B6C4DE", fontSize: 13, lineHeight: 20, marginTop: 14, maxWidth: 280 },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 28, marginBottom: 12 },
+  sectionHeader: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    marginTop: 28, marginBottom: 12,
+  },
   sectionTitle: { color: "#E7EDFA", fontSize: 11, fontWeight: "800", letterSpacing: 1.5 },
   sectionMeta: { color: "#7EA9F5", fontSize: 9, fontWeight: "800", letterSpacing: 1 },
   steps: { gap: 10 },

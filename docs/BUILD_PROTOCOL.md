@@ -29,10 +29,11 @@ Do not write a huge specification and postpone all implementation. Do not build 
 
 - Product direction: RECORDED
 - Clean application shell: IMPLEMENTED IN SOURCE
+- ACC-001 registration UI and local validation: IMPLEMENTED IN SOURCE; TESTING NOT RUN
 - Dependency installation: NOT RUN
 - Type checking: NOT RUN
 - Web export: NOT RUN
-- Backend/authentication: NOT STARTED
+- Backend/authentication and email verification: NOT CONNECTED
 - Production readiness: NOT VERIFIED
 
 ## First implementation sequence
