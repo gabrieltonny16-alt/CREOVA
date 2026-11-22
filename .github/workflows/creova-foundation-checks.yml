@@ -1,0 +1,44 @@
+name: CREOVA foundation checks
+
+on:
+  push:
+    branches:
+      - creova/clean-foundation
+  pull_request:
+    branches:
+      - creova/clean-foundation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: creova-foundation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Install, validate and export
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Check Expo dependency compatibility
+        run: npx expo install --check
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Export web build
+        run: npx expo export --platform web
