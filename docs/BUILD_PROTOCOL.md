@@ -36,6 +36,19 @@ Do not write a huge specification and postpone all implementation. Do not build 
 - Backend/authentication and email verification: NOT CONNECTED
 - Production readiness: NOT VERIFIED
 
+## Latest automated validation
+
+**Verified commit:** `eae5f67e07a34175e89e7230a75c3e888db9fe67`  
+**GitHub Actions run:** [45015132190](https://github.com/gabrieltonny16-alt/CREOVA/actions/runs/45015132190) — SUCCESS
+
+- Node.js 22 setup: PASS
+- Dependency installation: PASS (472 packages installed in the runner)
+- Expo dependency compatibility: PASS
+- TypeScript typecheck: PASS
+- Expo web export: PASS (`dist` generated in the runner)
+
+The web export is a build check only; it was not deployed. No on-device interaction test or backend/authentication test has been performed. The runner generated its dependency install from `package.json`; a committed lockfile is still outstanding.
+
 ## First implementation sequence
 
 1. Clean project shell and navigation foundation.
