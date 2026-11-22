@@ -8,6 +8,9 @@
     "scheme": "creova",
     "web": {
       "bundler": "metro"
+    },
+    "experiments": {
+      "baseUrl": "/CREOVA"
     }
   }
 }
