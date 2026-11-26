@@ -28,8 +28,8 @@ export default function App(){
   const handleUrl=async(url:string|null)=>{
    if(!url)return;
    try{
-    const parsed=Linking.parse(url);
-    const code=typeof parsed.queryParams?.code==="string"?parsed.queryParams.code:null;
+    const codeMatch=url.match(/[?&]code=([^&#]+)/);
+    const code=codeMatch?decodeURIComponent(codeMatch[1]):null;
     if(code){
      const {error}=await supabase.auth.exchangeCodeForSession(code);
      if(error)setAuthNotice("This link could not be completed. Request a fresh link and try again.");
@@ -37,7 +37,7 @@ export default function App(){
     }
    }catch{setAuthNotice("We couldn't complete this link. Please request a fresh one.");}
   };
-  Linking.getInitialURL().then(handleUrl);
+  Linking.getInitialURL().then(url=>handleUrl(url??null));
   const linkListener=Linking.addEventListener("url",({url})=>{void handleUrl(url);});
   return()=>{mounted=false;subscription.unsubscribe();linkListener.remove();};
  },[]);
