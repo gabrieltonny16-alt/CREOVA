@@ -20,6 +20,7 @@ Do not jump to stage 3 to avoid the work of stage 1.
 - Make creation, discovery, communication and commerce work together without forcing users into one workflow.
 - Design for mobile-first use, low-end devices, variable connectivity, accessibility and international audiences.
 - Use screen space deliberately: avoid oversized empty banners, excessive padding, redundant headers and decorative gaps; keep useful content and primary actions visible with compact, consistent layouts. Compact must remain readable, accessible and comfortable to operate, and adapt to small phones, tablets and larger screens.
+- Arrange information intentionally: group related items, use clear visual hierarchy, consistent alignment and spacing, predictable placement for navigation and actions, and concise labels. Put the most relevant content first, keep secondary actions out of the way without hiding them, and avoid duplicated controls, scattered settings, cluttered screens and awkward scrolling. Use responsive layouts that preserve this structure across screen sizes.
 - Explain eligibility, restrictions, recommendation outcomes and monetization rules.
 - Treat safety, privacy, security and reliability as product features, not later patches.
 
