@@ -14,7 +14,7 @@ type Props = { onBack: () => void };
 type FieldErrors = Partial<Record<"name" | "username" | "email" | "password" | "confirmPassword" | "terms", string>>;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const usernamePattern = /^[a-zA-Z][a-zA-Z0-9._]{2,19}$/;
+const usernamePattern = /^[a-z][a-z0-9_]{2,23}$/;
 
 function validate(values: {
   name: string;
@@ -29,7 +29,7 @@ function validate(values: {
     errors.name = "Enter a name between 2 and 60 characters.";
   }
   if (!usernamePattern.test(values.username.trim())) {
-    errors.username = "Use 3–20 characters: letters, numbers, dots or underscores. Start with a letter.";
+    errors.username = "Use 3–24 characters: lowercase letters, numbers or underscores. Start with a letter.";
   }
   if (!emailPattern.test(values.email.trim())) {
     errors.email = "Enter a valid email address.";
@@ -85,7 +85,7 @@ export default function RegistrationScreen({ onBack }: Props) {
       <TextInput
         value={value}
         onChangeText={(text) => {
-          onChangeText(text);
+          onChangeText(label === "USERNAME" ? text.toLowerCase() : text);
           setNotice("");
         }}
         placeholder={placeholder}

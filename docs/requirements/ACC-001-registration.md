@@ -20,7 +20,7 @@ A new person can begin creating a CREOVA account using a name, unique-style user
 ## Validation rules in this UI slice
 
 - Name: 2–60 trimmed characters.
-- Username: 3–20 characters, starts with a letter, then letters, numbers, dots or underscores.
+- Username: 3–24 characters, stored in lowercase; starts with a letter, then lowercase letters, numbers or underscores. This matches the current database username constraint; dots are not accepted.
 - Email: basic syntax validation; server-side verification and uniqueness checks remain required.
 - Password: minimum 12 characters in this first UI slice.
 - Confirmation: must exactly match.
@@ -35,7 +35,7 @@ These client-side checks are usability checks, not security boundaries. The serv
 | ACC-001-T01 | Open registration from home | Registration screen opens and back returns home | NOT RUN |
 | ACC-001-T02 | Submit empty form | Required-field errors appear | NOT RUN |
 | ACC-001-T03 | Enter malformed email | Email error appears | NOT RUN |
-| ACC-001-T04 | Enter invalid username | Username rule is explained | NOT RUN |
+| ACC-001-T04 | Enter invalid username | Username rule is explained and matches the database constraint | NOT RUN |
 | ACC-001-T05 | Enter password shorter than 12 characters | Password error appears | NOT RUN |
 | ACC-001-T06 | Enter mismatched confirmation | Confirmation error appears | NOT RUN |
 | ACC-001-T07 | Leave terms unchecked | Terms error appears | NOT RUN |
