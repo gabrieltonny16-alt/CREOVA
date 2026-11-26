@@ -82,7 +82,7 @@ const s=StyleSheet.create({
  input:{minHeight:50,borderRadius:12,borderWidth:1,borderColor:"#263653",backgroundColor:"#0D1423",color:"#FFFFFF",paddingHorizontal:15,fontSize:14},
  passwordRow:{minHeight:50,borderRadius:12,borderWidth:1,borderColor:"#263653",backgroundColor:"#0D1423",flexDirection:"row",alignItems:"center"},
  passwordInput:{flex:1,minHeight:48,color:"#FFFFFF",paddingHorizontal:15,fontSize:14},show:{paddingHorizontal:13,paddingVertical:12},
- showText:{color:"#8CB8FF",fontSize:10,fontWeight:"900",letterSpacing:1},inputError:{borderColor:"#D66A79},
+ showText:{color:"#8CB8FF",fontSize:10,fontWeight:"900",letterSpacing:1},inputError:{borderColor:"#D66A79"},
  error:{color:"#FF9AA8",fontSize:11,lineHeight:16,marginTop:5},termsRow:{flexDirection:"row",alignItems:"center",marginTop:4,marginBottom:5},
  checkbox:{width:21,height:21,borderRadius:6,borderWidth:1,borderColor:"#58739E",alignItems:"center",justifyContent:"center",marginRight:10},
  checkboxChecked:{backgroundColor:"#2B5DA4",borderColor:"#75A8F5"},checkmark:{color:"#FFFFFF",fontSize:14,fontWeight:"900"},
