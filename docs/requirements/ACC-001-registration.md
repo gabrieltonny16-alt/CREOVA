@@ -1,60 +1,36 @@
-# ACC-001 — Account registration
+# ACC-001 — Account registration and authentication
 
-**Status:** BUILDING  
-**Requirement source note:** ACC-001 is part of the reconstructed Category A mapping. The exact wording from the unavailable original v2.0 register was not recoverable; this working definition must remain traceable as a reconstruction rather than being represented as a verbatim original.
+**Status:** INTEGRATION BUILDING
 
 ## User outcome
+A person can register, verify their email, sign in, keep a secure session on their device, request a password reset, update their password, and sign out.
 
-A new person can begin creating a CREOVA account using a name, unique-style username, email address and password, understand what is required, correct invalid entries, and proceed to email verification once the secure account service is connected.
+## Implemented in this branch
+- Registration validates name, username, email, password, confirmation and terms before calling Supabase Auth.
+- Username validation matches the live database constraint: 3–24 lowercase letters, numbers or underscores.
+- Registration passes username and display name as Auth metadata. The existing database trigger creates the profile row.
+- Email/password sign-in uses Supabase Auth.
+- Password recovery requests a reset link and provides a password-update screen.
+- PKCE callback handling exchanges the verification/recovery code for a session.
+- Auth sessions persist using AsyncStorage and refresh automatically.
+- The app restores the session on launch and listens for Auth state changes.
+- The mobile client uses only the Supabase publishable key. No service-role or secret key is included.
 
-## Current slice delivered
+## Backend facts verified
+- CREOVA-DEV is active and healthy.
+- `public.profiles` has RLS enabled.
+- Profile insert policy requires `id = auth.uid()`.
+- The `on_auth_user_created_creova` trigger calls `handle_new_creova_user()`.
+- The trigger reads `username` and `display_name` from `raw_user_meta_data`, validates the username, then creates the profile.
+- The database username constraint accepts `^[a-z0-9_]{3,24}$`.
 
-- Registration entry point from the CREOVA home shell.
-- Name, username, email, password and confirm-password fields.
-- Inline validation and accessible labels.
-- Password visibility controls.
-- Terms acceptance control.
-- Clear local-only completion message.
-- No network request, persistence, account creation, email delivery or provider activation.
+## Verification still required
+- Install and Expo compatibility checks for the pinned SDK dependencies.
+- TypeScript and web export checks.
+- Confirm Supabase Auth email provider settings and redirect allowlist.
+- End-to-end registration, verification deep link, sign-in, session restore, password recovery/update, and sign-out on a real device.
+- Duplicate username/email, rate-limit and abuse-resistance tests.
+- Acceptance checks remain NOT RUN until tested.
 
-## Validation rules in this UI slice
-
-- Name: 2–60 trimmed characters.
-- Username: 3–24 characters, stored in lowercase; starts with a letter, then lowercase letters, numbers or underscores. This matches the current database username constraint; dots are not accepted.
-- Email: basic syntax validation; server-side verification and uniqueness checks remain required.
-- Password: minimum 12 characters in this first UI slice.
-- Confirmation: must exactly match.
-- Terms: must be accepted before local validation passes.
-
-These client-side checks are usability checks, not security boundaries. The server must repeat and strengthen validation.
-
-## Acceptance checks
-
-| ID | Check | Expected result | Status |
-|---|---|---|---|
-| ACC-001-T01 | Open registration from home | Registration screen opens and back returns home | NOT RUN |
-| ACC-001-T02 | Submit empty form | Required-field errors appear | NOT RUN |
-| ACC-001-T03 | Enter malformed email | Email error appears | NOT RUN |
-| ACC-001-T04 | Enter invalid username | Username rule is explained and matches the database constraint | NOT RUN |
-| ACC-001-T05 | Enter password shorter than 12 characters | Password error appears | NOT RUN |
-| ACC-001-T06 | Enter mismatched confirmation | Confirmation error appears | NOT RUN |
-| ACC-001-T07 | Leave terms unchecked | Terms error appears | NOT RUN |
-| ACC-001-T08 | Enter locally valid values and accept terms | Local-only notice appears; no account is claimed | NOT RUN |
-| ACC-001-T09 | Toggle password visibility | Password visibility changes without changing its value | NOT RUN |
-| ACC-001-T10 | Inspect network and persistence | No user data is transmitted or persisted by this preview | NOT RUN |
-
-## Backend work still required
-
-- Secure registration endpoint and server-side validation.
-- Unique username/email enforcement with safe error handling.
-- Password hashing using a modern password-hashing algorithm; never store plaintext passwords.
-- Email verification token generation, expiry, single-use semantics and resend rate limits.
-- Abuse prevention, rate limiting and account-enumeration-resistant responses.
-- Terms/privacy version recording and consent timestamp.
-- Data minimisation, deletion and retention rules.
-- Secure session issuance only after the required verification policy is satisfied.
-- Automated tests and real-device tests.
-
-## Exit criteria for VERIFIED
-
-All acceptance checks must pass on a supported runtime; backend tests must prove secure account creation, duplicate handling, verification-token lifecycle, abuse controls and safe failure behaviour. A visible form alone is not completion.
+## Safety
+No test registration, sign-in or password-reset email was sent during implementation. Do not send live test emails or alter production email settings without explicit approval. Never put a service-role key in the mobile app.
