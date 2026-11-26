@@ -4,7 +4,7 @@ import {supabase} from "../../lib/supabase";
 
 type Props={onBack:()=>void};
 type Errors=Partial<Record<"name"|"username"|"email"|"password"|"confirmPassword"|"terms",string>>;
-const emailPattern=/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+const emailPattern=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // This matches the live public.profiles username constraint exactly.
 const usernamePattern=/^[a-z0-9_]{3,24}$/;
 
