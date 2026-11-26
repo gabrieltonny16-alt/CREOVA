@@ -19,6 +19,7 @@ Do not jump to stage 3 to avoid the work of stage 1.
 - Give users meaningful control over privacy, recommendations, notifications and their data.
 - Make creation, discovery, communication and commerce work together without forcing users into one workflow.
 - Design for mobile-first use, low-end devices, variable connectivity, accessibility and international audiences.
+- Use screen space deliberately: avoid oversized empty banners, excessive padding, redundant headers and decorative gaps; keep useful content and primary actions visible with compact, consistent layouts. Compact must remain readable, accessible and comfortable to operate, and adapt to small phones, tablets and larger screens.
 - Explain eligibility, restrictions, recommendation outcomes and monetization rules.
 - Treat safety, privacy, security and reliability as product features, not later patches.
 
