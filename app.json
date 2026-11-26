@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "scheme": "creova",
+    "icon": "./assets/brand/creova-icon.png",
     "web": {
       "bundler": "metro"
     },
