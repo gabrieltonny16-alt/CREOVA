@@ -1,4 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { Image } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import { VideoView, useVideoPlayer } from "expo-video";
 import {
   ActivityIndicator,
   FlatList,
@@ -18,6 +21,31 @@ type Author = {
 };
 
 type CountRow = { count: number };
+type FeedMedia = { id: string; object_path: string; media_type: "image" | "video"; mime_type: string; width: number | null; height: number | null; duration_seconds: number | null; position: number; signedUrl?: string | null };
+const MEDIA_BUCKET = "creova-media";
+const MAX_MEDIA_BYTES = 50 * 1024 * 1024;
+const ALLOWED_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "video/webm"]);
+
+function mimeForAsset(asset: ImagePicker.ImagePickerAsset): string | null {
+  if (asset.mimeType && ALLOWED_MEDIA_TYPES.has(asset.mimeType)) return asset.mimeType;
+  const name = (asset.fileName ?? asset.uri).toLowerCase();
+  if (/\.(jpe?g)$/.test(name)) return "image/jpeg";
+  if (/\.png$/.test(name)) return "image/png";
+  if (/\.webp$/.test(name)) return "image/webp";
+  if (/\.mp4$/.test(name)) return "video/mp4";
+  if (/\.(mov|qt)$/.test(name)) return "video/quicktime";
+  if (/\.webm$/.test(name)) return "video/webm";
+  return null;
+}
+
+function extensionForMime(mime: string): string {
+  return ({ "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm" } as Record<string, string>)[mime] ?? "bin";
+}
+
+function PostVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, (instance) => { instance.loop = false; });
+  return <VideoView player={player} style={styles.postVideo} nativeControls contentFit="contain" />;
+}
 
 type FeedPost = {
   id: string;
@@ -28,6 +56,7 @@ type FeedPost = {
   author: Author | null;
   likes: CountRow[];
   comments: CountRow[];
+  media: FeedMedia[];
 };
 
 type FeedComment = {
@@ -64,6 +93,8 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
   const [commentsByPost, setCommentsByPost] = useState<Record<string, FeedComment[]>>({});
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [caption, setCaption] = useState("");
+  const [selectedMedia, setSelectedMedia] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [uploadProgress, setUploadProgress] = useState("");
   const [visibility, setVisibility] = useState<"public" | "followers">("public");
   const [feedMode, setFeedMode] = useState<"For you" | "Following">("For you");
   const [loading, setLoading] = useState(true);
@@ -88,7 +119,7 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
     try {
       let query = supabase
         .from("posts")
-        .select("id,author_id,caption,created_at,visibility,author:profiles!posts_author_id_fkey(username,display_name,avatar_url),likes:post_likes(count),comments:post_comments(count)")
+        .select("id,author_id,caption,created_at,visibility,author:profiles!posts_author_id_fkey(username,display_name,avatar_url),likes:post_likes(count),comments:post_comments(count),media:post_media(id,object_path,media_type,mime_type,width,height,duration_seconds,position)")
         .order("created_at", { ascending: false })
         .limit(PAGE_SIZE);
 
@@ -106,7 +137,14 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
       const { data, error } = await query;
       if (error) throw error;
 
-      const nextPosts = (data ?? []) as unknown as FeedPost[];
+      let nextPosts = (data ?? []) as unknown as FeedPost[];
+      const mediaPaths = nextPosts.flatMap((post) => (post.media ?? []).map((media) => media.object_path));
+      if (mediaPaths.length) {
+        const { data: signedRows, error: signedError } = await supabase.storage.from(MEDIA_BUCKET).createSignedUrls(mediaPaths, 3600);
+        if (signedError) throw signedError;
+        const signedByPath = new Map((signedRows ?? []).map((row) => [row.path, row.signedUrl]));
+        nextPosts = nextPosts.map((post) => ({ ...post, media: (post.media ?? []).slice().sort((a, b) => a.position - b.position).map((media) => ({ ...media, signedUrl: signedByPath.get(media.object_path) ?? null })) }));
+      }
       setPosts(nextPosts);
 
       if (nextPosts.length) {
@@ -132,40 +170,118 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
     if (mode === "feed") void loadFeed();
   }, [loadFeed, mode]);
 
+  const chooseMedia = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setNotice("Allow CREOVA access to selected photos and videos to attach media.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images", "videos"],
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+      quality: 0.85,
+      videoMaxDuration: 180,
+    });
+    if (result.canceled) return;
+    const incoming = result.assets ?? [];
+    if (incoming.some((asset) => !mimeForAsset(asset))) {
+      setNotice("Choose JPG, PNG, WebP, MP4, MOV or WebM files only.");
+      return;
+    }
+    if (incoming.some((asset) => (asset.fileSize ?? 0) > MAX_MEDIA_BYTES)) {
+      setNotice("Each photo or video must be 50 MB or smaller.");
+      return;
+    }
+    setSelectedMedia((current) => [...current, ...incoming.filter((asset) => !current.some((item) => item.uri === asset.uri))].slice(0, 10));
+    setNotice("");
+  };
+
+  const uploadSelectedMedia = async (postId: string, assets: ImagePicker.ImagePickerAsset[]) => {
+    const uploadedPaths: string[] = [];
+    const records: Array<Record<string, string | number | null>> = [];
+    try {
+      for (let index = 0; index < assets.length; index += 1) {
+        const asset = assets[index];
+        const mimeType = mimeForAsset(asset);
+        if (!mimeType) throw new Error("This media format is not supported.");
+        setUploadProgress(`Uploading media ${index + 1} of ${assets.length}…`);
+        const response = await fetch(asset.uri);
+        if (!response.ok) throw new Error("CREOVA couldn't read one of the selected files.");
+        const bytes = await response.arrayBuffer();
+        if (bytes.byteLength <= 0 || bytes.byteLength > MAX_MEDIA_BYTES) {
+          throw new Error("Each selected file must be larger than 0 bytes and no larger than 50 MB.");
+        }
+        const path = `${userId}/${postId}/${Date.now()}-${index}.${extensionForMime(mimeType)}`;
+        const { error: uploadError } = await supabase.storage.from(MEDIA_BUCKET).upload(path, bytes, {
+          contentType: mimeType,
+          cacheControl: "3600",
+          upsert: false,
+        });
+        if (uploadError) throw uploadError;
+        uploadedPaths.push(path);
+        records.push({
+          post_id: postId,
+          object_path: path,
+          media_type: mimeType.startsWith("video/") ? "video" : "image",
+          mime_type: mimeType,
+          file_size_bytes: bytes.byteLength,
+          width: asset.width > 0 ? asset.width : null,
+          height: asset.height > 0 ? asset.height : null,
+          duration_seconds: asset.duration && asset.duration > 0 ? asset.duration / 1000 : null,
+          position: index,
+          alt_text: "",
+        });
+      }
+      const { error: recordError } = await supabase.from("post_media").insert(records);
+      if (recordError) throw recordError;
+    } catch (error) {
+      if (uploadedPaths.length) await supabase.storage.from(MEDIA_BUCKET).remove(uploadedPaths);
+      throw error;
+    }
+  };
+
   const publishPost = async () => {
     const cleanCaption = caption.trim();
     if (!userId) {
       setNotice("Sign in to publish a post.");
       return;
     }
-    if (!cleanCaption) {
-      setNotice("Write something before publishing.");
+    if (!cleanCaption && selectedMedia.length === 0) {
+      setNotice("Write a caption or attach at least one photo or video.");
       return;
     }
     if (cleanCaption.length > 2200) {
       setNotice("Posts can contain up to 2,200 characters.");
       return;
     }
-
     setPublishing(true);
     setNotice("");
-    const { error } = await supabase.from("posts").insert({
-      author_id: userId,
-      caption: cleanCaption,
-      post_type: "post",
-      visibility,
-    });
-
-    if (error) {
-      setNotice(error.message);
+    setUploadProgress("");
+    const { data: createdPost, error: createError } = await supabase
+      .from("posts")
+      .insert({ author_id: userId, caption: cleanCaption, post_type: "post", visibility })
+      .select("id")
+      .single();
+    if (createError || !createdPost) {
+      setNotice(createError?.message ?? "Your post couldn't be created. Please try again.");
       setPublishing(false);
       return;
     }
-
-    setCaption("");
-    setVisibility("public");
-    setPublishing(false);
-    onPostCreated();
+    try {
+      if (selectedMedia.length) await uploadSelectedMedia(createdPost.id, selectedMedia);
+      setCaption("");
+      setSelectedMedia([]);
+      setVisibility("public");
+      setUploadProgress("");
+      onPostCreated();
+    } catch (error) {
+      await supabase.from("posts").delete().eq("id", createdPost.id).eq("author_id", userId);
+      setNotice(error instanceof Error ? error.message : "Your media couldn't be uploaded. Please try again.");
+    } finally {
+      setPublishing(false);
+      setUploadProgress("");
+    }
   };
 
   const toggleLike = async (post: FeedPost) => {
@@ -271,6 +387,22 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
           style={styles.captionInput}
         />
         <Text style={styles.characterCount}>{caption.length.toLocaleString()} / 2,200</Text>
+        <Pressable accessibilityRole="button" onPress={() => void chooseMedia()} disabled={publishing} style={styles.mediaPickerButton}>
+          <Text style={styles.mediaPickerText}>＋ ADD PHOTOS OR VIDEOS</Text>
+        </Pressable>
+        {selectedMedia.length > 0 ? (
+          <View style={styles.selectedMediaWrap}>
+            {selectedMedia.map((asset) => {
+              const mime = mimeForAsset(asset) ?? "";
+              return (
+                <View key={asset.uri} style={styles.selectedMediaItem}>
+                  {mime.startsWith("image/") ? <Image source={{ uri: asset.uri }} style={styles.selectedMediaThumb} /> : <View style={[styles.selectedMediaThumb, styles.videoThumb]}><Text style={styles.videoThumbText}>VIDEO</Text></View>}
+                  <Pressable accessibilityRole="button" accessibilityLabel="Remove selected media" onPress={() => setSelectedMedia((current) => current.filter((item) => item.uri !== asset.uri))} style={styles.removeMediaButton}><Text style={styles.removeMediaText}>×</Text></Pressable>
+                </View>
+              );
+            })}
+          </View>
+        ) : null}
         <Text style={styles.fieldLabel}>WHO CAN SEE THIS POST?</Text>
         <View style={styles.visibilityRow}>
           {(["public", "followers"] as const).map((value) => (
@@ -287,14 +419,15 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
             </Pressable>
           ))}
         </View>
-        <Text style={styles.helperText}>Text posts are available in this first publishing build. Photo and video publishing are the next media milestone.</Text>
+        <Text style={styles.helperText}>Up to 10 photos or videos. Each file must be 50 MB or smaller.</Text>
+        {uploadProgress ? <Text style={styles.uploadProgress}>{uploadProgress}</Text> : null}
         {notice ? <Text accessibilityRole="alert" style={styles.notice}>{notice}</Text> : null}
         <Pressable
           accessibilityRole="button"
           accessibilityState={{ disabled: publishing || !caption.trim() }}
-          disabled={publishing || !caption.trim()}
+          disabled={publishing || (!caption.trim() && selectedMedia.length === 0)}
           onPress={() => void publishPost()}
-          style={[styles.primaryButton, (publishing || !caption.trim()) && styles.disabledButton]}
+          style={[styles.primaryButton, (publishing || (!caption.trim() && selectedMedia.length === 0)) && styles.disabledButton]}
         >
           {publishing ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.primaryButtonText}>PUBLISH POST</Text>}
         </Pressable>
@@ -368,7 +501,8 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenCompo
                   </View>
                   {item.visibility === "followers" ? <Text style={styles.visibilityTag}>FOLLOWERS</Text> : null}
                 </View>
-                <Text style={styles.postCaption}>{item.caption}</Text>
+                {item.caption ? <Text style={styles.postCaption}>{item.caption}</Text> : null}
+                {(item.media ?? []).map((media) => media.signedUrl ? (media.media_type === "video" ? <PostVideo key={media.id} uri={media.signedUrl} /> : <Image key={media.id} source={{ uri: media.signedUrl }} resizeMode="cover" style={styles.postImage} />) : null)}
                 <View style={styles.postActions}>
                   <Pressable accessibilityRole="button" accessibilityState={{ selected: liked }} onPress={() => void toggleLike(item)} style={styles.actionButton}>
                     <Text style={[styles.actionText, liked && styles.likedText]}>{liked ? "♥ Liked" : "♡ Like"} · {likeCount}</Text>
@@ -448,6 +582,8 @@ const styles = StyleSheet.create({
   authorMeta: { color: "#7F90AA", fontSize: 10, marginTop: 2 },
   visibilityTag: { color: "#91B7EE", fontSize: 8, fontWeight: "900", letterSpacing: 1 },
   postCaption: { color: "#E5ECF8", fontSize: 13, lineHeight: 20 },
+  postImage: { width: "100%", aspectRatio: 1, maxHeight: 460, borderRadius: 12, backgroundColor: "#111B2B" },
+  postVideo: { width: "100%", aspectRatio: 9 / 16, maxHeight: 520, borderRadius: 12, backgroundColor: "#000000" },
   postActions: { flexDirection: "row", gap: 18, borderTopWidth: 1, borderTopColor: "#1D2A43", paddingTop: 10 },
   actionButton: { paddingVertical: 2 },
   actionText: { color: "#9EADC5", fontSize: 11, fontWeight: "700" },
@@ -476,5 +612,15 @@ const styles = StyleSheet.create({
   visibilityText: { color: "#9BAAC2", fontSize: 11, fontWeight: "700" },
   visibilityTextSelected: { color: "#FFFFFF" },
   helperText: { color: "#7F90AA", fontSize: 10, lineHeight: 16 },
+  mediaPickerButton: { alignSelf: "flex-start", borderWidth: 1, borderColor: "#315B89", borderRadius: 11, paddingHorizontal: 13, paddingVertical: 10 },
+  mediaPickerText: { color: "#B6D6FF", fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
+  selectedMediaWrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  selectedMediaItem: { position: "relative" },
+  selectedMediaThumb: { width: 76, height: 76, borderRadius: 10, backgroundColor: "#14213A" },
+  videoThumb: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#315B89" },
+  videoThumbText: { color: "#B6D6FF", fontSize: 10, fontWeight: "900" },
+  removeMediaButton: { position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: "#B53D5A", alignItems: "center", justifyContent: "center" },
+  removeMediaText: { color: "#FFFFFF", fontSize: 18, lineHeight: 20 },
+  uploadProgress: { color: "#9CC4FF", fontSize: 11, fontWeight: "700" },
   disabledButton: { opacity: 0.45 },
 });
