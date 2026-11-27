@@ -42,6 +42,7 @@ type Props = {
   mode: "feed" | "create";
   onSignIn: () => void;
   onJoin: () => void;
+  onOpenComposer: () => void;
   onPostCreated: () => void;
 };
 
@@ -56,7 +57,7 @@ function timeAgo(value: string): string {
   return new Date(value).toLocaleDateString();
 }
 
-export default function FeedScreen({ userId, mode, onSignIn, onJoin, onPostCreated }: Props) {
+export default function FeedScreen({ userId, mode, onSignIn, onJoin, onOpenComposer, onPostCreated }: Props) {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [likedPostIds, setLikedPostIds] = useState<Set<string>>(new Set());
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
@@ -128,8 +129,8 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onPostCreat
   }, [userId, feedMode]);
 
   useEffect(() => {
-    void loadFeed();
-  }, [loadFeed]);
+    if (mode === "feed") void loadFeed();
+  }, [loadFeed, mode]);
 
   const publishPost = async () => {
     const cleanCaption = caption.trim();
@@ -165,8 +166,6 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onPostCreat
     setVisibility("public");
     setPublishing(false);
     onPostCreated();
-    await loadFeed();
-    setNotice("Your post is published.");
   };
 
   const toggleLike = async (post: FeedPost) => {
@@ -329,7 +328,7 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onPostCreat
         ))}
       </View>
 
-      <Pressable accessibilityRole="button" onPress={onPostCreated} style={styles.quickComposer}>
+      <Pressable accessibilityRole="button" onPress={onOpenComposer} style={styles.quickComposer}>
         <View style={styles.avatarFallback}><Text style={styles.avatarLetter}>C</Text></View>
         <Text style={styles.quickComposerText}>Share something with your community…</Text>
         <Text style={styles.quickComposerPlus}>+</Text>
@@ -349,7 +348,7 @@ export default function FeedScreen({ userId, mode, onSignIn, onJoin, onPostCreat
             <View style={styles.emptyState}>
               <Text style={styles.emptyTitle}>Your feed is ready for its first posts.</Text>
               <Text style={styles.body}>{feedMode === "Following" ? "Posts from people you follow will appear here." : "Be one of the first to share something with the CREOVA community."}</Text>
-              <Pressable accessibilityRole="button" onPress={onPostCreated} style={styles.emptyCreateButton}>
+              <Pressable accessibilityRole="button" onPress={onOpenComposer} style={styles.emptyCreateButton}>
                 <Text style={styles.secondaryButtonText}>CREATE A POST</Text>
               </Pressable>
             </View>

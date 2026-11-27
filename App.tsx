@@ -77,7 +77,8 @@ export default function App(){
       mode={activeTab==="Create"?"create":"feed"}
       onSignIn={()=>setAuthScreen("signin")}
       onJoin={()=>setAuthScreen("register")}
-      onPostCreated={()=>{if(activeTab!=="Create")setActiveTab("Create");}}
+      onOpenComposer={()=>setActiveTab("Create")}
+      onPostCreated={()=>setActiveTab("Home")}
      />:
      <View style={s.placeholderPanel}>
       <Text style={s.eyebrow}>CREOVA FOUNDATION</Text>
