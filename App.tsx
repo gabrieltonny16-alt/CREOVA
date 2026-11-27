@@ -66,8 +66,15 @@ export default function App(){
        <Pressable onPress={()=>setAuthScreen("register")} accessibilityRole="button" style={s.joinButton}><Text style={s.joinButtonText}>JOIN</Text></Pressable></>}
     </View>
    </View>
-   {activeTab==="Profile"&&session?
-    <ProfileScreen userId={session.user.id} email={session.user.email??undefined} onSignOut={signOut}/>:
+   {activeTab==="Profile"?
+     session?<ProfileScreen userId={session.user.id} email={session.user.email??undefined} onSignOut={signOut}/>:
+      <View style={s.placeholderPanel}>
+       <Text style={s.eyebrow}>YOUR CREOVA ACCOUNT</Text>
+       <Text style={s.heading}>Your profile</Text>
+       <Text style={s.placeholderText}>Create an account or sign in to manage your profile, privacy and creator activity.</Text>
+       <Pressable onPress={()=>setAuthScreen("register")} style={s.joinButton}><Text style={s.joinButtonText}>CREATE ACCOUNT</Text></Pressable>
+       <Pressable onPress={()=>setAuthScreen("signin")} style={s.signInButton}><Text style={s.signInText}>SIGN IN</Text></Pressable>
+      </View>:
     activeTab==="Explore"?
      <ExploreScreen userId={session?.user.id??null} onSignIn={()=>setAuthScreen("signin")} onJoin={()=>setAuthScreen("register")}/>:
     activeTab==="Home"||activeTab==="Create"?
