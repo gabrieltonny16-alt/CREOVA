@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, 
 import { supabase } from "../../lib/supabase";
 
 type Profile = { username: string; display_name: string; bio: string; is_private: boolean };
+type FollowRequest = { follower_id: string; username: string; display_name: string; created_at: string };
 type Props = { userId: string; email?: string; onSignOut: () => void };
 
 export default function ProfileScreen({ userId, email, onSignOut }: Props) {
@@ -13,6 +14,8 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
   const [posts, setPosts] = useState(0);
   const [followers, setFollowers] = useState(0);
   const [following, setFollowing] = useState(0);
+  const [requests, setRequests] = useState<FollowRequest[]>([]);
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState("");
@@ -32,6 +35,25 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
       if (followerCount.error) throw followerCount.error;
       if (followingCount.error) throw followingCount.error;
       const row = profileResult.data as Profile;
+      const { data: pendingRows, error: pendingError } = await supabase
+        .from("user_follows")
+        .select("follower_id,created_at")
+        .eq("following_id", userId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (pendingError) throw pendingError;
+      const pendingIds = (pendingRows ?? []).map((item) => item.follower_id);
+      let requestProfiles: Array<{ id: string; username: string; display_name: string }> = [];
+      if (pendingIds.length) {
+        const { data: people, error: peopleError } = await supabase.from("profiles").select("id,username,display_name").in("id", pendingIds);
+        if (peopleError) throw peopleError;
+        requestProfiles = people ?? [];
+      }
+      const peopleById = new Map(requestProfiles.map((person) => [person.id, person]));
+      setRequests((pendingRows ?? []).flatMap((item) => {
+        const person = peopleById.get(item.follower_id);
+        return person ? [{ follower_id: item.follower_id, username: person.username, display_name: person.display_name, created_at: item.created_at }] : [];
+      }));
       setProfile(row);
       setDisplayName(row.display_name);
       setBio(row.bio);
@@ -47,6 +69,20 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
   }, [userId]);
 
   useEffect(() => { void loadProfile(); }, [loadProfile]);
+
+  const decideFollowRequest = async (followerId: string, decision: "accepted" | "rejected") => {
+    if (requestBusyId) return;
+    setRequestBusyId(followerId);
+    setNotice("");
+    const { error } = await supabase.from("user_follows")
+      .update({ status: decision })
+      .eq("follower_id", followerId)
+      .eq("following_id", userId)
+      .eq("status", "pending");
+    if (error) setNotice(error.message);
+    else await loadProfile();
+    setRequestBusyId(null);
+  };
 
   const saveProfile = async () => {
     const cleanName = displayName.trim();
@@ -78,6 +114,25 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
         <View style={styles.stat}><Text style={styles.statNumber}>{followers}</Text><Text style={styles.statLabel}>FOLLOWERS</Text></View>
         <View style={styles.stat}><Text style={styles.statNumber}>{following}</Text><Text style={styles.statLabel}>FOLLOWING</Text></View>
       </View>
+      {requests.length > 0 ? (
+        <View style={styles.requestsSection}>
+          <Text style={styles.section}>FOLLOW REQUESTS · {requests.length}</Text>
+          {requests.map((request) => (
+            <View key={request.follower_id} style={styles.requestRow}>
+              <View style={styles.requestInfo}>
+                <Text style={styles.requestName}>{request.display_name}</Text>
+                <Text style={styles.username}>@{request.username}</Text>
+              </View>
+              <Pressable disabled={requestBusyId === request.follower_id} onPress={() => void decideFollowRequest(request.follower_id, "rejected")} style={styles.rejectButton}>
+                <Text style={styles.rejectText}>DECLINE</Text>
+              </Pressable>
+              <Pressable disabled={requestBusyId === request.follower_id} onPress={() => void decideFollowRequest(request.follower_id, "accepted")} style={styles.acceptButton}>
+                {requestBusyId === request.follower_id ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.acceptText}>ACCEPT</Text>}
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
       <Text style={styles.section}>EDIT PROFILE</Text>
       <Text style={styles.label}>DISPLAY NAME</Text>
       <TextInput value={displayName} onChangeText={setDisplayName} maxLength={60} style={styles.input} placeholder="Your display name" placeholderTextColor="#71809A" />
@@ -114,6 +169,14 @@ const styles = StyleSheet.create({
   statNumber: { color: "#F4F7FF", fontSize: 16, fontWeight: "900" },
   statLabel: { color: "#7F90AA", fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
   section: { color: "#8CA6CC", fontSize: 10, fontWeight: "900", letterSpacing: 1.5, marginTop: 4 },
+  requestsSection: { gap: 7, paddingVertical: 4 },
+  requestRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 5 },
+  requestInfo: { flex: 1 },
+  requestName: { color: "#F4F7FF", fontSize: 11, fontWeight: "800" },
+  rejectButton: { paddingHorizontal: 9, paddingVertical: 8, borderWidth: 1, borderColor: "#4B3B4B", borderRadius: 9 },
+  rejectText: { color: "#D8A8B7", fontSize: 8, fontWeight: "900" },
+  acceptButton: { minWidth: 62, alignItems: "center", paddingHorizontal: 9, paddingVertical: 8, backgroundColor: "#244F91", borderRadius: 9 },
+  acceptText: { color: "#FFFFFF", fontSize: 8, fontWeight: "900" },
   label: { color: "#8CA6CC", fontSize: 9, fontWeight: "900", letterSpacing: 0.8, marginTop: 3 },
   input: { minHeight: 42, borderWidth: 1, borderColor: "#26344D", borderRadius: 10, paddingHorizontal: 11, color: "#F4F7FF", backgroundColor: "#0D1322", fontSize: 12 },
   bioInput: { minHeight: 64, paddingTop: 10, textAlignVertical: "top" },
