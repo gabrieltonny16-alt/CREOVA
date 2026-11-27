@@ -7,6 +7,8 @@ import PasswordUpdateScreen from "./src/features/auth/PasswordUpdateScreen";
 import FeedScreen from "./src/features/feed/FeedScreen";
 import ExploreScreen from "./src/features/explore/ExploreScreen";
 import ProfileScreen from "./src/features/profile/ProfileScreen";
+import InboxScreen from "./src/features/inbox/InboxScreen";
+import ConversationScreen from "./src/features/inbox/ConversationScreen";
 import {supabase} from "./src/lib/supabase";
 
 type Tab="Home"|"Explore"|"Create"|"Inbox"|"Profile";
@@ -19,6 +21,7 @@ export default function App(){
  const [authReady,setAuthReady]=useState(false);
  const [passwordRecovery,setPasswordRecovery]=useState(false);
  const [authNotice,setAuthNotice]=useState("");
+ const [activeConversation,setActiveConversation]=useState<{id:string;title:string}|null>(null);
 
  useEffect(()=>{
   let mounted=true;
@@ -75,6 +78,10 @@ export default function App(){
        <Pressable onPress={()=>setAuthScreen("register")} style={s.joinButton}><Text style={s.joinButtonText}>CREATE ACCOUNT</Text></Pressable>
        <Pressable onPress={()=>setAuthScreen("signin")} style={s.signInButton}><Text style={s.signInText}>SIGN IN</Text></Pressable>
       </View>:
+    activeTab==="Inbox" && session && activeConversation?
+     <ConversationScreen conversationId={activeConversation.id} userId={session.user.id} title={activeConversation.title} onBack={()=>setActiveConversation(null)}/>:
+    activeTab==="Inbox" && session?
+     <InboxScreen userId={session.user.id} onOpenConversation={(conversation)=>setActiveConversation(conversation)}/>:
     activeTab==="Explore"?
      <ExploreScreen userId={session?.user.id??null} onSignIn={()=>setAuthScreen("signin")} onJoin={()=>setAuthScreen("register")}/>:
     activeTab==="Home"||activeTab==="Create"?
