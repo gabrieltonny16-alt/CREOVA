@@ -5,6 +5,8 @@ import RegistrationScreen from "./src/features/auth/RegistrationScreen";
 import SignInScreen from "./src/features/auth/SignInScreen";
 import PasswordUpdateScreen from "./src/features/auth/PasswordUpdateScreen";
 import FeedScreen from "./src/features/feed/FeedScreen";
+import ExploreScreen from "./src/features/explore/ExploreScreen";
+import ProfileScreen from "./src/features/profile/ProfileScreen";
 import {supabase} from "./src/lib/supabase";
 
 type Tab="Home"|"Explore"|"Create"|"Inbox"|"Profile";
@@ -65,12 +67,9 @@ export default function App(){
     </View>
    </View>
    {activeTab==="Profile"&&session?
-    <View style={s.profilePanel}>
-     <Text style={s.eyebrow}>YOUR ACCOUNT</Text><Text style={s.heading}>Profile</Text>
-     <Text style={s.profileEmail}>{session.user.email??"Signed-in CREOVA member"}</Text>
-     <Text style={s.profileMeta}>{authReady?"Your session is active on this device.":"Restoring your session…"}</Text>
-     <Pressable onPress={signOut} accessibilityRole="button" style={s.signOutButton}><Text style={s.signOutText}>SIGN OUT</Text></Pressable>
-    </View>:
+    <ProfileScreen userId={session.user.id} email={session.user.email??undefined} onSignOut={signOut}/>:
+    activeTab==="Explore"?
+     <ExploreScreen userId={session?.user.id??null} onSignIn={()=>setAuthScreen("signin")} onJoin={()=>setAuthScreen("register")}/>:
     activeTab==="Home"||activeTab==="Create"?
      <FeedScreen
       userId={session?.user.id??null}
@@ -82,8 +81,8 @@ export default function App(){
      />:
      <View style={s.placeholderPanel}>
       <Text style={s.eyebrow}>CREOVA FOUNDATION</Text>
-      <Text style={s.heading}>{activeTab}</Text>
-      <Text style={s.placeholderText}>{activeTab==="Explore"?"Creator discovery and search are in the next feature build.":"Your conversations and inbox are in the next feature build."}</Text>
+      <Text style={s.heading}>Inbox</Text>
+      <Text style={s.placeholderText}>Your conversations and messages are next in the integrated Stage 1 build.</Text>
       <Text style={s.placeholderMeta}>BUILDING · Stage 1 feature parity</Text>
      </View>}
    <View style={s.tabBar}>{TABS.map(tab=>{
