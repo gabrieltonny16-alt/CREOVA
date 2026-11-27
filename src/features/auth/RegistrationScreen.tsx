@@ -1,6 +1,7 @@
 import React,{useState} from "react";
 import {KeyboardAvoidingView,Platform,Pressable,ScrollView,StyleSheet,Text,TextInput,View} from "react-native";
 import {supabase} from "../../lib/supabase";
+import {isPasswordStrong,PASSWORD_POLICY_MESSAGE} from "./passwordPolicy";
 
 type Props={onBack:()=>void};
 type Errors=Partial<Record<"name"|"username"|"email"|"password"|"confirmPassword"|"terms",string>>;
@@ -20,7 +21,7 @@ export default function RegistrationScreen({onBack}:Props){
   if(name.trim().length<2||name.trim().length>60)next.name="Enter a name between 2 and 60 characters.";
   if(!usernamePattern.test(username.trim()))next.username="Use 3–24 lowercase letters, numbers or underscores.";
   if(!emailPattern.test(email.trim()))next.email="Enter a valid email address.";
-  if(password.length<12)next.password="Use at least 12 characters.";
+  if(!isPasswordStrong(password))next.password=PASSWORD_POLICY_MESSAGE;
   if(!confirmPassword||confirmPassword!==password)next.confirmPassword="Your passwords do not match.";
   if(!acceptedTerms)next.terms="You must accept the terms to continue.";
   setErrors(next);setNotice("");if(Object.keys(next).length)return;
@@ -52,7 +53,7 @@ export default function RegistrationScreen({onBack}:Props){
    {field("USERNAME",username,setUsername,"Choose a username",errors.username)}
    {field("EMAIL ADDRESS",email,setEmail,"you@example.com",errors.email,"email-address")}
    <View style={s.field}><Text style={s.label}>PASSWORD</Text><View style={s.passwordRow}>
-    <TextInput value={password} onChangeText={v=>{setPassword(v);setNotice("");}} placeholder="At least 12 characters" placeholderTextColor="#71809A"
+    <TextInput value={password} onChangeText={v=>{setPassword(v);setNotice("");}} placeholder="12+ characters, upper/lowercase, number, symbol" placeholderTextColor="#71809A"
      style={s.passwordInput} secureTextEntry={!showPassword} autoCapitalize="none" autoCorrect={false} accessibilityLabel="Password"/>
     <Pressable onPress={()=>setShowPassword(!showPassword)} style={s.show}><Text style={s.showText}>{showPassword?"HIDE":"SHOW"}</Text></Pressable>
    </View>{errors.password?<Text style={s.error}>{errors.password}</Text>:null}</View>

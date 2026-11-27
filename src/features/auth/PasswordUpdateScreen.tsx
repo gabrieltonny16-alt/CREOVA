@@ -1,13 +1,14 @@
 import React,{useState} from "react";
 import {KeyboardAvoidingView,Platform,Pressable,ScrollView,StyleSheet,Text,TextInput,View} from "react-native";
 import {supabase} from "../../lib/supabase";
+import {isPasswordStrong,PASSWORD_POLICY_MESSAGE} from "./passwordPolicy";
 type Props={onDone:()=>void};
 export default function PasswordUpdateScreen({onDone}:Props){
  const [password,setPassword]=useState("");const [confirm,setConfirm]=useState("");
  const [loading,setLoading]=useState(false);const [error,setError]=useState("");const [done,setDone]=useState(false);
  const submit=async()=>{
   setError("");
-  if(password.length<12){setError("Use at least 12 characters.");return;}
+  if(!isPasswordStrong(password)){setError(PASSWORD_POLICY_MESSAGE);return;}
   if(password!==confirm){setError("Your passwords do not match.");return;}
   setLoading(true);
   try{const {error:updateError}=await supabase.auth.updateUser({password});if(updateError)throw updateError;setDone(true);}
@@ -19,8 +20,8 @@ export default function PasswordUpdateScreen({onDone}:Props){
    <Text style={s.brand}>CREOVA</Text><Text style={s.tagline}>CREATE. CONNECT. EVOLVE.</Text>
    <Text style={s.title}>{done?"Password updated":"Choose a new password"}</Text>
    {done?<><Text style={s.subtitle}>Your password has been changed successfully.</Text><Pressable onPress={onDone} style={s.button}><Text style={s.buttonText}>CONTINUE</Text></Pressable></>:
-    <><Text style={s.subtitle}>Use at least 12 characters and keep it unique to CREOVA.</Text>
-     <Text style={s.label}>NEW PASSWORD</Text><TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="At least 12 characters" placeholderTextColor="#71809A" style={s.input} autoCapitalize="none"/>
+    <><Text style={s.subtitle}>Use at least 12 characters, including uppercase and lowercase letters, a number and a symbol.</Text>
+     <Text style={s.label}>NEW PASSWORD</Text><TextInput value={password} onChangeText={setPassword} secureTextEntry placeholder="12+ characters, upper/lowercase, number, symbol" placeholderTextColor="#71809A" style={s.input} autoCapitalize="none"/>
      <Text style={s.label}>CONFIRM PASSWORD</Text><TextInput value={confirm} onChangeText={setConfirm} secureTextEntry placeholder="Enter it again" placeholderTextColor="#71809A" style={s.input} autoCapitalize="none"/>
      {error?<Text accessibilityRole="alert" style={s.error}>{error}</Text>:null}
      <Pressable onPress={submit} disabled={loading} style={[s.button,loading&&s.disabled]}><Text style={s.buttonText}>{loading?"UPDATING…":"UPDATE PASSWORD"}</Text></Pressable>
