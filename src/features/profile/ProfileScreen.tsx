@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { supabase } from "../../lib/supabase";
 
 type Profile = { username: string; display_name: string; bio: string; is_private: boolean };
@@ -70,7 +70,7 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
   if (!profile) return <View style={styles.screen}><Text style={styles.notice}>{notice || "Profile unavailable."}</Text><Pressable onPress={() => void loadProfile()} style={styles.action}><Text style={styles.actionText}>TRY AGAIN</Text></Pressable></View>;
 
   return (
-    <View style={styles.screen}>
+    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <View style={styles.heading}><View><Text style={styles.eyebrow}>YOUR ACCOUNT</Text><Text style={styles.title}>Profile</Text></View><Pressable onPress={() => void loadProfile()} style={styles.refresh}><Text style={styles.refreshText}>REFRESH</Text></Pressable></View>
       <View style={styles.identity}><View style={styles.avatar}><Text style={styles.avatarText}>{profile.display_name.slice(0, 1).toUpperCase()}</Text></View><View style={{ flex: 1 }}><Text style={styles.name}>{profile.display_name}</Text><Text style={styles.username}>@{profile.username}</Text>{email ? <Text style={styles.email}>{email}</Text> : null}</View></View>
       <View style={styles.stats}>
@@ -90,12 +90,13 @@ export default function ProfileScreen({ userId, email, onSignOut }: Props) {
       {notice ? <Text accessibilityRole="alert" style={styles.notice}>{notice}</Text> : null}
       <Pressable disabled={saving} onPress={() => void saveProfile()} style={styles.action}>{saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.actionText}>SAVE PROFILE</Text>}</Pressable>
       <Pressable onPress={onSignOut} style={styles.signOut}><Text style={styles.signOutText}>SIGN OUT</Text></Pressable>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#070A12", paddingHorizontal: 16, paddingTop: 12, gap: 8 },
+  screen: { flex: 1, backgroundColor: "#070A12" },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20, gap: 8 },
   loading: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#070A12" },
   heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   eyebrow: { color: "#6E9FFF", fontSize: 10, fontWeight: "800", letterSpacing: 2 },
